@@ -1,5 +1,7 @@
 let dashboardChart = null;
 let detailChart = null;
+let efChart = null;
+let efDetailChart = null;
 let currentActivity = null;
 let currentDetails = null;
 let currentSettings = null;
@@ -116,8 +118,136 @@ async function initDashboard() {
 
   renderDashboardMetrics(activities);
   renderDashboardAlerts(activities);
+  await renderProgressCard();
   renderDistanceChart(activities.slice(0, 20).reverse());
   await loadRunsPage(0);
+}
+
+async function renderProgressCard() {
+  try {
+    const res = await fetch("/api/activities/progress");
+    const data = await res.json();
+    const weeks = data.weeks || [];
+    const summary = data.summary || {};
+    const card = document.getElementById("progress-card");
+    const summaryEl = document.getElementById("progress-summary");
+    const hintEl = document.getElementById("progress-hint");
+    const canvas = document.getElementById("ef-chart");
+
+    if (!card || !summaryEl || !hintEl || !canvas || !window.Chart) {
+      return;
+    }
+
+    if (!weeks.length) {
+      card.style.display = "none";
+      return;
+    }
+
+    const trendVal = summary.trend;
+    const trendClass = trendVal === null || trendVal === undefined ? "" : trendVal >= 0 ? "positive" : "negative";
+    const trendStr = trendVal === null || trendVal === undefined ? "—" : `${trendVal >= 0 ? "+" : ""}${Number(trendVal).toFixed(1)}%`;
+
+    summaryEl.innerHTML = `
+      <div class="progress-stat">
+        <span class="progress-stat-label">Начало</span>
+        <span class="progress-stat-value">${summary.first_ef?.toFixed(2) ?? "—"}</span>
+      </div>
+      <div class="progress-stat">
+        <span class="progress-stat-label">Сейчас</span>
+        <span class="progress-stat-value">${summary.last_ef?.toFixed(2) ?? "—"}</span>
+      </div>
+      <div class="progress-stat">
+        <span class="progress-stat-label">Пик</span>
+        <span class="progress-stat-value">${summary.max_ef?.toFixed(2) ?? "—"}</span>
+      </div>
+      <div class="progress-stat">
+        <span class="progress-stat-label">Тренд</span>
+        <span class="progress-stat-value ${trendClass}">${trendStr}</span>
+      </div>
+    `;
+
+    hintEl.textContent = `пик ${summary.peak_week ?? "—"} · ${summary.total_weeks ?? 0} нед.`;
+
+    const labels = weeks.map((week) => week.label);
+    const efValues = weeks.map((week) => week.ef);
+    const trendData = weeks.map((_, index) => {
+      const slice = efValues.slice(Math.max(0, index - 2), index + 1);
+      if (!slice.length) {
+        return null;
+      }
+      const avg = slice.reduce((sum, value) => sum + value, 0) / slice.length;
+      return Number(avg.toFixed(3));
+    });
+
+    if (efChart) {
+      efChart.destroy();
+    }
+
+    efChart = new Chart(canvas, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "EF",
+            data: efValues,
+            borderColor: "#3a5040",
+            backgroundColor: "rgba(58,80,64,0.06)",
+            tension: 0.3,
+            pointRadius: 3,
+            pointBackgroundColor: "#3a5040",
+            borderWidth: 2,
+            fill: true,
+          },
+          {
+            label: "тренд",
+            data: trendData,
+            borderColor: "#c8a020",
+            borderDash: [5, 3],
+            borderWidth: 1.5,
+            pointRadius: 0,
+            fill: false,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label(context) {
+                return context.datasetIndex === 0
+                  ? `EF: ${context.parsed.y.toFixed(2)}`
+                  : `тренд: ${context.parsed.y.toFixed(2)}`;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            ticks: { autoSkip: true, maxRotation: 45, maxTicksLimit: 12, font: { size: 11 } },
+            grid: { display: false },
+          },
+          y: {
+            ticks: {
+              font: { size: 11 },
+              callback(value) {
+                return Number(value).toFixed(2);
+              },
+            },
+            grid: { color: "rgba(128,128,128,0.1)" },
+          },
+        },
+      },
+    });
+  } catch (error) {
+    const card = document.getElementById("progress-card");
+    if (card) {
+      card.style.display = "none";
+    }
+  }
 }
 
 function renderDashboardMetrics(activities) {
@@ -252,12 +382,15 @@ function renderRunsTable(activities) {
   }
 
   if (!activities.length) {
-    body.innerHTML = '<tr><td colspan="7" class="empty-message">Пробежек пока нет.</td></tr>';
+    body.innerHTML = '<tr><td colspan="8" class="empty-message">Пробежек пока нет.</td></tr>';
     return;
   }
 
   body.innerHTML = activities.map((item) => {
     const pace = formatPace(item.avg_pace);
+    const ef = item.avg_pace && item.avg_hrm
+      ? ((1000 / item.avg_pace * 60) / item.avg_hrm).toFixed(2)
+      : "—";
     const recovery = item.recover_time !== null && item.recover_time !== undefined
       ? `${Math.round(item.recover_time)} ч`
       : "—";
@@ -270,6 +403,7 @@ function renderRunsTable(activities) {
         <td>${Number(item.distance_km).toFixed(2)} км</td>
         <td class="${item.avg_hrm <= 160 ? "hr-green" : item.avg_hrm <= 180 ? "hr-amber" : "hr-red"}">${item.avg_hrm ?? "—"}</td>
         <td>${pace}</td>
+        <td>${ef}</td>
         <td>${item.train_load ?? "—"}</td>
         <td>${recovery}</td>
         <td>${detailsCell}</td>
@@ -464,8 +598,9 @@ function renderZoneBars(activity) {
 
 function renderDetailChart(details) {
   const canvas = document.getElementById("hr-chart");
+  const efCanvas = document.getElementById("ef-detail-chart");
   const labelsRoot = document.getElementById("detail-chart-labels");
-  if (!canvas || !window.Chart) {
+  if (!canvas || !efCanvas || !window.Chart) {
     return;
   }
 
@@ -479,6 +614,9 @@ function renderDetailChart(details) {
   if (detailChart) {
     detailChart.destroy();
   }
+  if (efDetailChart) {
+    efDetailChart.destroy();
+  }
 
   const baseTime = samples[0].start_time || samples[0].timestamp || 0;
   const labels = samples.map((sample) => {
@@ -490,6 +628,15 @@ function renderDetailChart(details) {
   const speed = trackPoints.length
     ? trackPoints.slice(0, labels.length).map((point) => point.speed_mps ? Number((point.speed_mps * 3.6).toFixed(2)) : null)
     : samples.map((sample) => sample.speed_mps ? Number((sample.speed_mps * 3.6).toFixed(2)) : null);
+  const ef = labels.map((_, index) => {
+    const hr = heartRate[index];
+    const speedKmh = speed[index];
+    if (!hr || !speedKmh) {
+      return null;
+    }
+    const speedMpm = speedKmh * 1000 / 60;
+    return Number((speedMpm / hr).toFixed(3));
+  });
   const zoneLowValue = Number(currentSettings?.target_hr_zone_low ?? 140);
   const zoneHighValue = Number(currentSettings?.target_hr_zone_high ?? 160);
   const zoneLow = labels.map(() => zoneLowValue);
@@ -579,6 +726,59 @@ function renderDetailChart(details) {
                 return `Скорость: ${context.parsed.y} км/ч`;
               }
               return "";
+            },
+          },
+        },
+        legend: { display: false },
+      },
+    },
+  });
+
+  efDetailChart = new Chart(efCanvas, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "EF",
+          data: ef,
+          borderColor: "#3a5040",
+          backgroundColor: "rgba(58,80,64,0.08)",
+          tension: 0.24,
+          pointRadius: 0,
+          borderWidth: 2,
+          fill: true,
+          spanGaps: true,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      devicePixelRatio: 2,
+      animation: false,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: {
+          ticks: { display: false },
+          grid: { display: false },
+        },
+        y: {
+          ticks: {
+            color: "#90a89a",
+            font: { size: 10 },
+            callback(value) {
+              return Number(value).toFixed(2);
+            },
+          },
+          grid: { color: "rgba(255,255,255,0.06)" },
+        },
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label(context) {
+              return `EF: ${Number(context.parsed.y).toFixed(3)}`;
             },
           },
         },

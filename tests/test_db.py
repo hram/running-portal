@@ -11,6 +11,7 @@ from portal.db import (
     connect_db,
     DEFAULT_SETTINGS,
     get_activities,
+    get_activities_for_ef,
     get_activity,
     get_detail,
     get_ai_analysis,
@@ -255,3 +256,40 @@ async def test_get_settings_returns_defaults(conn):
 async def test_save_setting_updates_value(conn):
     await save_setting(conn, "target_hr_zone_low", "135")
     assert await get_setting(conn, "target_hr_zone_low") == "135"
+
+
+@pytest.mark.asyncio
+async def test_get_activities_for_ef_filters_valid_rows(conn):
+    await upsert_activity(
+        conn,
+        {
+            "activity_id": "run-good",
+            "date": "2026-04-24T08:00:00Z",
+            "distance_km": 3.5,
+            "avg_pace": 360,
+            "avg_hrm": 150,
+        },
+    )
+    await upsert_activity(
+        conn,
+        {
+            "activity_id": "run-short",
+            "date": "2026-04-23T08:00:00Z",
+            "distance_km": 0.2,
+            "avg_pace": 360,
+            "avg_hrm": 150,
+        },
+    )
+    await upsert_activity(
+        conn,
+        {
+            "activity_id": "run-nohr",
+            "date": "2026-04-22T08:00:00Z",
+            "distance_km": 4.0,
+            "avg_pace": 360,
+        },
+    )
+
+    rows = await get_activities_for_ef(conn)
+    assert len(rows) == 1
+    assert rows[0]["date"] == "2026-04-24T08:00:00Z"

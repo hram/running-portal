@@ -161,3 +161,42 @@ async def test_load_all_activity_details_loads_only_missing(test_client, monkeyp
     assert response.json()["loaded"] == 1
     assert response.json()["failed"] == 0
     assert calls == ["run-2"]
+
+
+@pytest.mark.asyncio
+async def test_activities_progress_returns_weekly_ef(test_client):
+    client, db_path = test_client
+    conn = await connect_db(str(db_path))
+    try:
+        await conn.execute(
+            """
+            INSERT INTO activities (activity_id, date, distance_km, avg_pace, avg_hrm, synced_at)
+            VALUES
+            (?, ?, ?, ?, ?, ?),
+            (?, ?, ?, ?, ?, ?),
+            (?, ?, ?, ?, ?, ?),
+            (?, ?, ?, ?, ?, ?),
+            (?, ?, ?, ?, ?, ?),
+            (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "run-1", "2026-03-31T05:14:01+00:00", 3.17, 360, 150, "2026-04-24T13:21:22+00:00",
+                "run-2", "2026-04-02T05:14:01+00:00", 4.02, 350, 148, "2026-04-24T13:21:22+00:00",
+                "run-3", "2026-04-07T05:14:01+00:00", 5.10, 345, 147, "2026-04-24T13:21:22+00:00",
+                "run-4", "2026-04-14T05:14:01+00:00", 3.88, 340, 145, "2026-04-24T13:21:22+00:00",
+                "run-5", "2026-04-21T05:14:01+00:00", 3.66, 338, 144, "2026-04-24T13:21:22+00:00",
+                "run-6", "2026-04-28T05:14:01+00:00", 4.01, 336, 143, "2026-04-24T13:21:22+00:00",
+            ),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+    response = await client.get("/api/activities/progress")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["weeks"]) >= 5
+    assert payload["summary"]["first_ef"] > 0
+    assert payload["summary"]["last_ef"] > 0
+    assert payload["summary"]["max_ef"] >= payload["summary"]["first_ef"]
+    assert payload["summary"]["total_weeks"] == len(payload["weeks"])

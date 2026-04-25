@@ -255,6 +255,23 @@ async def get_activity_count(conn: aiosqlite.Connection) -> int:
     return int(row["count"] if row is not None else 0)
 
 
+async def get_activities_for_ef(conn: aiosqlite.Connection) -> list[dict[str, Any]]:
+    cursor = await conn.execute(
+        """
+        SELECT date, avg_pace, avg_hrm, distance_km
+        FROM activities
+        WHERE avg_pace IS NOT NULL
+          AND avg_pace > 0
+          AND avg_hrm IS NOT NULL
+          AND avg_hrm > 0
+          AND distance_km > 0.3
+        ORDER BY date ASC
+        """
+    )
+    rows = await cursor.fetchall()
+    return [dict(row) for row in rows]
+
+
 async def get_activity(conn: aiosqlite.Connection, activity_id: str) -> dict[str, Any] | None:
     cursor = await conn.execute("SELECT * FROM activities WHERE activity_id = ?", (activity_id,))
     row = await cursor.fetchone()

@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from portal.db import connect_db, get_activities, get_activity, get_activity_count, get_detail
+from portal.db import (
+    connect_db,
+    get_activities,
+    get_activities_for_ef,
+    get_activity,
+    get_activity_count,
+    get_detail,
+)
 from portal.sync import _resolve_db_path, fetch_detail
 
 
@@ -60,6 +69,81 @@ async def list_activities(limit: int = 20, offset: int = 0) -> dict[str, object]
         }
     finally:
         await conn.close()
+
+
+@router.get("/activities/progress")
+async def get_progress() -> dict[str, object]:
+    conn = await connect_db(_resolve_db_path())
+    try:
+        activities = await get_activities_for_ef(conn)
+    finally:
+        await conn.close()
+
+    if not activities:
+        return {"weeks": [], "summary": {}}
+
+    weekly: dict[str, list[float]] = defaultdict(list)
+    weekly_labels: dict[str, str] = {}
+
+    for activity in activities:
+        date_str = activity["date"]
+        try:
+            dt = datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
+        except Exception:
+            continue
+
+        iso_year, iso_week, _ = dt.isocalendar()
+        week_key = f"{iso_year}-W{iso_week:02d}"
+        monday = dt.date().fromisocalendar(iso_year, iso_week, 1)
+        weekly_labels.setdefault(week_key, monday.strftime("%d.%m"))
+
+        pace = activity.get("avg_pace")
+        hrm = activity.get("avg_hrm")
+        if pace and hrm and pace > 0 and hrm > 0:
+            speed_mpm = 1000 / pace * 60
+            ef = round(speed_mpm / hrm, 3)
+            weekly[week_key].append(ef)
+
+    weeks_data: list[dict[str, object]] = []
+    for week_key in sorted(weekly.keys()):
+        values = weekly[week_key]
+        if values:
+            weeks_data.append(
+                {
+                    "week": week_key,
+                    "label": weekly_labels[week_key],
+                    "ef": round(sum(values) / len(values), 3),
+                    "runs": len(values),
+                }
+            )
+
+    if not weeks_data:
+        return {"weeks": [], "summary": {}}
+
+    ef_values = [float(week["ef"]) for week in weeks_data]
+    first_ef = ef_values[0]
+    last_ef = ef_values[-1]
+    max_ef = max(ef_values)
+    peak_week = str(weeks_data[ef_values.index(max_ef)]["label"])
+
+    trend = None
+    if len(ef_values) >= 6:
+        recent = sum(ef_values[-3:]) / 3
+        prev = sum(ef_values[-6:-3]) / 3
+        if prev > 0:
+            trend = round((recent - prev) / prev * 100, 1)
+
+    return {
+        "weeks": weeks_data,
+        "summary": {
+            "first_ef": first_ef,
+            "last_ef": last_ef,
+            "max_ef": max_ef,
+            "peak_week": peak_week,
+            "trend": trend,
+            "total_weeks": len(weeks_data),
+        },
+    }
 
 
 @router.get("/activities/{activity_id}")
@@ -123,3 +207,4 @@ async def load_all_activity_details() -> dict[str, object]:
         "failed": len(failed),
         "failed_activity_ids": failed,
     }
+

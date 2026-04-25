@@ -21,6 +21,24 @@
   <div class="section-label">Ключевые метрики</div>
   <div class="metrics" id="metrics-grid"></div>
 
+  <div class="card" id="progress-card">
+    <div class="card-header">
+      <span class="card-title">Прогресс формы</span>
+      <span class="card-hint" id="progress-hint"></span>
+    </div>
+    <div class="progress-summary" id="progress-summary"></div>
+    <div class="ef-legend">
+      <span><span class="ef-legend-line" style="background:#3a5040"></span>Efficiency Factor</span>
+      <span><span class="ef-legend-line" style="background:#c8a020;border-top:1px dashed #c8a020;height:1px"></span>тренд</span>
+    </div>
+    <div class="chart-wrap" style="height:140px;margin-bottom:4px">
+      <canvas id="ef-chart" role="img" aria-label="График Efficiency Factor по неделям">EF по неделям</canvas>
+    </div>
+    <div class="progress-note">
+      EF = скорость (м/мин) / пульс — чем выше, тем лучше. Растёт когда форма улучшается.
+    </div>
+  </div>
+
   <div class="card chart-card">
     <div class="card-header">
       <span class="card-title">Дистанции</span>
@@ -41,7 +59,7 @@
       <thead>
         <tr>
           <th>Дата</th><th>Дистанция</th><th>Пульс</th>
-          <th>Темп</th><th>Нагрузка</th><th>Восст.</th><th>Детали</th>
+          <th>Темп</th><th>EF</th><th>Нагрузка</th><th>Восст.</th><th>Детали</th>
         </tr>
       </thead>
       <tbody id="run-list"></tbody>
