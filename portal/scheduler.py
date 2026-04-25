@@ -5,6 +5,7 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.schedulers.base import STATE_RUNNING, STATE_STOPPED
 
+from portal.routers.ai import generate_daily_recommendation
 from portal.sync import sync_activities
 
 
@@ -15,6 +16,8 @@ scheduler = AsyncIOScheduler()
 async def scheduled_sync() -> None:
     logger.info("Scheduler: starting scheduled sync")
     result = await sync_activities()
+    if result.get("error") is None and int(result.get("added", 0)) > 0:
+        await generate_daily_recommendation(sync_id=result.get("sync_id"))
     logger.info("Scheduler: sync complete - %s", result)
 
 

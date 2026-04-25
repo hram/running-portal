@@ -42,9 +42,18 @@ async def list_activities(limit: int = 20, offset: int = 0) -> dict[str, object]
     conn = await connect_db(_resolve_db_path())
     try:
         activities = await get_activities(conn, limit=limit, offset=offset)
+        serialized: list[dict[str, Any]] = []
+        for activity in activities:
+            detail = await get_detail(conn, activity["activity_id"])
+            serialized.append(
+                {
+                    **_serialize_activity_row(activity),
+                    "has_details": detail is not None,
+                }
+            )
         total = await get_activity_count(conn)
         return {
-            "activities": [_serialize_activity_row(activity) for activity in activities],
+            "activities": serialized,
             "total": total,
             "limit": limit,
             "offset": offset,
@@ -84,3 +93,33 @@ async def get_activity_detail(activity_id: str) -> dict[str, object]:
     if details is None:
         raise HTTPException(status_code=404, detail="Activity details not available")
     return {"activity_id": activity_id, "details": details}
+
+
+@router.post("/activities/details/load-all")
+async def load_all_activity_details() -> dict[str, object]:
+    conn = await connect_db(_resolve_db_path())
+    try:
+        activities = await get_activities(conn, limit=10000, offset=0)
+        pending_ids: list[str] = []
+        for activity in activities:
+            detail = await get_detail(conn, activity["activity_id"])
+            if detail is None:
+                pending_ids.append(str(activity["activity_id"]))
+    finally:
+        await conn.close()
+
+    loaded = 0
+    failed: list[str] = []
+    for activity_id in pending_ids:
+        details = await fetch_detail(activity_id)
+        if details is None:
+            failed.append(activity_id)
+        else:
+            loaded += 1
+
+    return {
+        "total": len(pending_ids),
+        "loaded": loaded,
+        "failed": len(failed),
+        "failed_activity_ids": failed,
+    }

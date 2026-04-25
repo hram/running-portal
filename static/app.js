@@ -3,6 +3,8 @@ let detailChart = null;
 let currentActivity = null;
 let currentDetails = null;
 let currentSettings = null;
+let runsPage = 0;
+const RUNS_PAGE_SIZE = 10;
 const STATUS_LABELS = {
   run: "🏃 Бежать",
   run_easy: "🚶 Бежать легко",
@@ -115,7 +117,7 @@ async function initDashboard() {
   renderDashboardMetrics(activities);
   renderDashboardAlerts(activities);
   renderDistanceChart(activities.slice(0, 20).reverse());
-  renderRunsTable(activities.slice(0, 20));
+  await loadRunsPage(0);
 }
 
 function renderDashboardMetrics(activities) {
@@ -250,7 +252,7 @@ function renderRunsTable(activities) {
   }
 
   if (!activities.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty-message">Пробежек пока нет.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="empty-message">Пробежек пока нет.</td></tr>';
     return;
   }
 
@@ -259,6 +261,9 @@ function renderRunsTable(activities) {
     const recovery = item.recover_time !== null && item.recover_time !== undefined
       ? `${Math.round(item.recover_time)} ч`
       : "—";
+    const detailsCell = item.has_details
+      ? '<span class="detail-status detail-status--ready">есть</span>'
+      : `<button class="table-action-btn" type="button" onclick="loadRunDetails('${encodeURIComponent(item.activity_id)}', this)">Загрузить</button>`;
     return `
       <tr>
         <td><a class="run-link" href="/activity/${encodeURIComponent(item.activity_id)}">${formatDate(item.date)}</a></td>
@@ -267,9 +272,102 @@ function renderRunsTable(activities) {
         <td>${pace}</td>
         <td>${item.train_load ?? "—"}</td>
         <td>${recovery}</td>
+        <td>${detailsCell}</td>
       </tr>
     `;
   }).join("");
+}
+
+async function loadRunDetails(activityId, button) {
+  if (!button) {
+    return;
+  }
+
+  const cell = button.closest("td");
+  button.disabled = true;
+  button.textContent = "Загрузка...";
+
+  try {
+    const response = await fetch(`/api/activities/${activityId}/detail`);
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.detail || payload.error || "Не удалось загрузить детали");
+    }
+    if (cell) {
+      cell.innerHTML = '<span class="detail-status detail-status--ready">есть</span>';
+    }
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Повторить";
+  }
+}
+
+async function loadAllRunDetails() {
+  const button = document.getElementById("load-all-details-btn");
+  const status = document.getElementById("details-bulk-status");
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Загрузка...";
+  }
+  if (status) {
+    status.textContent = "Запущена догрузка деталей по всем тренировкам без графика.";
+  }
+
+  try {
+    const response = await fetch("/api/activities/details/load-all", { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.detail || payload.error || "Не удалось загрузить детали");
+    }
+    if (status) {
+      status.textContent = `Готово: загружено ${payload.loaded} из ${payload.total}, ошибок ${payload.failed}.`;
+    }
+    await loadRunsPage(runsPage);
+  } catch (error) {
+    if (status) {
+      status.textContent = `Ошибка: ${error.message}`;
+    }
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Загрузить все детали";
+    }
+  }
+}
+
+async function loadRunsPage(page) {
+  const offset = page * RUNS_PAGE_SIZE;
+  const response = await fetch(`/api/activities?limit=${RUNS_PAGE_SIZE}&offset=${offset}`);
+  const payload = await response.json();
+  renderRunsTable(payload.activities || []);
+  runsPage = page;
+  updateRunsPager(payload.total || 0);
+}
+
+function updateRunsPager(total) {
+  const totalPages = Math.max(1, Math.ceil(total / RUNS_PAGE_SIZE));
+  const pageStatus = document.getElementById("runs-page-status");
+  const prevBtn = document.getElementById("runs-prev-btn");
+  const nextBtn = document.getElementById("runs-next-btn");
+
+  if (pageStatus) {
+    pageStatus.textContent = `Страница ${runsPage + 1} из ${totalPages}`;
+  }
+  if (prevBtn) {
+    prevBtn.disabled = runsPage <= 0;
+  }
+  if (nextBtn) {
+    nextBtn.disabled = runsPage >= totalPages - 1;
+  }
+}
+
+async function changeRunsPage(delta) {
+  const nextPage = Math.max(0, runsPage + delta);
+  if (nextPage === runsPage && delta < 0) {
+    return;
+  }
+  await loadRunsPage(nextPage);
 }
 
 async function initDetailPage(activityId) {

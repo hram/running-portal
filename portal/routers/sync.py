@@ -16,7 +16,7 @@ router = APIRouter()
 async def run_sync() -> dict[str, object]:
     started_at = time.monotonic()
     result = await sync_activities()
-    if result.get("error") is None:
+    if result.get("error") is None and int(result.get("added", 0)) > 0:
         await generate_daily_recommendation(sync_id=result.get("sync_id"))
     result["duration_seconds"] = round(time.monotonic() - started_at, 3)
     return result

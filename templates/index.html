@@ -34,16 +34,23 @@
   <div class="card">
     <div class="card-header">
       <span class="card-title">Последние пробежки</span>
+      <button class="btn" type="button" id="load-all-details-btn" onclick="loadAllRunDetails()">Загрузить все детали</button>
     </div>
+    <div id="details-bulk-status" class="card-hint" style="margin-bottom:12px"></div>
     <table class="run-table">
       <thead>
         <tr>
           <th>Дата</th><th>Дистанция</th><th>Пульс</th>
-          <th>Темп</th><th>Нагрузка</th><th>Восст.</th>
+          <th>Темп</th><th>Нагрузка</th><th>Восст.</th><th>Детали</th>
         </tr>
       </thead>
       <tbody id="run-list"></tbody>
     </table>
+    <div class="table-pager">
+      <button class="btn" type="button" id="runs-prev-btn" onclick="changeRunsPage(-1)">Назад</button>
+      <span id="runs-page-status" class="card-hint">Страница 1</span>
+      <button class="btn" type="button" id="runs-next-btn" onclick="changeRunsPage(1)">Далее</button>
+    </div>
   </div>
 </div>
 {% endblock %}

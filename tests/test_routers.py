@@ -68,6 +68,36 @@ async def test_activities_list_empty(test_client):
 
 
 @pytest.mark.asyncio
+async def test_activities_list_includes_has_details_flag(test_client):
+    client, db_path = test_client
+    conn = await connect_db(str(db_path))
+    try:
+        await conn.execute(
+            """
+            INSERT INTO activities (activity_id, date, distance_km, synced_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("run-1", "2026-04-24T05:14:01+00:00", 3.17, "2026-04-24T13:21:22+00:00"),
+        )
+        await conn.execute(
+            """
+            INSERT INTO activity_details (activity_id, samples, track_points, raw_detail, fetched_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("run-1", "[]", "[]", "{}", "2026-04-24T13:21:22+00:00"),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+    response = await client.get("/api/activities")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["activities"][0]["activity_id"] == "run-1"
+    assert payload["activities"][0]["has_details"] is True
+
+
+@pytest.mark.asyncio
 async def test_activity_detail_page_renders_activity(test_client):
     client, db_path = test_client
     conn = await connect_db(str(db_path))
@@ -87,3 +117,47 @@ async def test_activity_detail_page_renders_activity(test_client):
     assert response.status_code == 200
     assert "Пробежка" in response.text
     assert "activity-data" in response.text
+
+
+@pytest.mark.asyncio
+async def test_load_all_activity_details_loads_only_missing(test_client, monkeypatch):
+    client, db_path = test_client
+    conn = await connect_db(str(db_path))
+    try:
+        await conn.execute(
+            """
+            INSERT INTO activities (activity_id, date, distance_km, synced_at)
+            VALUES (?, ?, ?, ?), (?, ?, ?, ?)
+            """,
+            (
+                "run-1", "2026-04-24T05:14:01+00:00", 3.17, "2026-04-24T13:21:22+00:00",
+                "run-2", "2026-04-23T05:14:01+00:00", 4.01, "2026-04-24T13:21:22+00:00",
+            ),
+        )
+        await conn.execute(
+            """
+            INSERT INTO activity_details (activity_id, samples, track_points, raw_detail, fetched_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("run-1", "[]", "[]", "{}", "2026-04-24T13:21:22+00:00"),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+    from portal.routers import activities as activities_router
+
+    calls: list[str] = []
+
+    async def fake_fetch_detail(activity_id: str):
+        calls.append(activity_id)
+        return {"samples": [], "track_points": [], "raw_detail": {}}
+
+    monkeypatch.setattr(activities_router, "fetch_detail", fake_fetch_detail)
+
+    response = await client.post("/api/activities/details/load-all")
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["loaded"] == 1
+    assert response.json()["failed"] == 0
+    assert calls == ["run-2"]
