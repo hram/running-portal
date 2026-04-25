@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Running Portal Dashboard{% endblock %}
+
+{% block content %}
+<section id="today-card" class="today-card today-card--loading">
+  <div class="today-status-icon" id="today-icon">⏳</div>
+  <div class="today-content">
+    <div class="today-label">Ответ на сегодня</div>
+    <div class="today-status" id="today-status">Загрузка...</div>
+    <div class="today-message" id="today-message"></div>
+  </div>
+  <button class="today-refresh" type="button" onclick="refreshRecommendation()" title="Обновить рекомендацию">↻</button>
+</section>
+
+<section class="hero">
+  <div>
+    <p class="eyebrow">Running Analytics</p>
+    <h1>Дашборд тренировок</h1>
+    <p class="hero-copy">Последние пробежки, недельные сигналы нагрузки и динамика дистанций в одном экране.</p>
+  </div>
+  <div class="hero-badge">55 пробежек в базе</div>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Ключевые метрики</h2>
+    <p>Сводка строится по последним данным из Mi Fitness.</p>
+  </div>
+  <div id="metrics-grid" class="metrics">
+    <article class="metric-card skeleton-card"></article>
+    <article class="metric-card skeleton-card"></article>
+    <article class="metric-card skeleton-card"></article>
+    <article class="metric-card skeleton-card"></article>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Алерты</h2>
+    <p>Автоматическая проверка пульса, восстановления и недельной нагрузки.</p>
+  </div>
+  <div id="alerts" class="alerts"></div>
+</section>
+
+<section class="dashboard-grid">
+  <section class="panel panel-chart">
+    <div class="section-head">
+      <h2>Дистанции последних пробежек</h2>
+      <p>20 последних выходов на пробежку.</p>
+    </div>
+    <div class="chart-container">
+      <canvas id="distance-chart"></canvas>
+    </div>
+  </section>
+
+  <section class="panel panel-table">
+    <div class="section-head">
+      <h2>Последние пробежки</h2>
+      <p>С быстрым переходом в детальную страницу.</p>
+    </div>
+    <div class="table-wrap">
+      <table class="run-table">
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>Дистанция</th>
+            <th>Пульс</th>
+            <th>Темп</th>
+            <th>Нагрузка</th>
+            <th>Восстановление</th>
+          </tr>
+        </thead>
+        <tbody id="runs-table-body"></tbody>
+      </table>
+    </div>
+  </section>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', () => initDashboard());
+</script>
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Детали пробежки{% endblock %}
+
+{% block content %}
+{% if activity %}
+<section class="detail-hero">
+  <div class="detail-backline">
+    <a href="/" class="back-link">← Назад</a>
+    <span class="detail-title">Пробежка <span id="detail-date-title"></span></span>
+    <span class="detail-distance" id="detail-distance-title"></span>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Метрики пробежки</h2>
+    <p>Основные показатели конкретного выхода.</p>
+  </div>
+  <div id="detail-metrics" class="metrics metrics-6"></div>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Пульсовые зоны</h2>
+    <p>Распределение времени по зонам нагрузки.</p>
+  </div>
+  <div id="zone-bars" class="zone-bars"></div>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Пульс и скорость по времени</h2>
+    <p>Если детали не загружены, можно запросить их отдельно.</p>
+  </div>
+  <div class="detail-actions">
+    <button id="load-detail-btn" type="button" onclick="loadActivityDetails()">Загрузить детали</button>
+    <span id="detail-status" class="status-pill"></span>
+  </div>
+  <div class="chart-container">
+    <canvas id="detail-chart"></canvas>
+  </div>
+</section>
+
+<section class="panel" id="ai-section">
+  <div class="section-head">
+    <h2>AI тренер</h2>
+    <span class="card-hint">Персональный анализ на основе твоих данных</span>
+  </div>
+
+  <input type="hidden" id="activity-id" value="{{ activity.activity_id }}">
+
+  <div id="ai-result" class="ai-bubble" style="display:none"></div>
+
+  <div id="ai-loading" style="display:none">
+    <span class="spinner"></span> Тренер анализирует пробежку...
+  </div>
+
+  <div id="ai-controls">
+    <button type="button" onclick="getAnalysis()">Получить анализ</button>
+    <button type="button" id="refresh-btn" style="display:none" onclick="getAnalysis(true)">
+      Обновить анализ
+    </button>
+    <span id="ai-cached-badge" class="badge" style="display:none">из кэша</span>
+  </div>
+</section>
+{% else %}
+<section class="panel empty-state">
+  <h1>Пробежка не найдена</h1>
+  <p>Для activity_id <code>{{ activity_id }}</code> записи в базе нет.</p>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if activity %}
+<script id="activity-data" type="application/json">{{ activity | tojson }}</script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => initDetailPage("{{ activity_id }}"));
+</script>
+{% endif %}
+{% endblock %}
