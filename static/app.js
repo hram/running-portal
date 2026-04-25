@@ -2,6 +2,8 @@ let dashboardChart = null;
 let detailChart = null;
 let efChart = null;
 let efDetailChart = null;
+let scatterChart = null;
+let scatterDataCache = null;
 let currentActivity = null;
 let currentDetails = null;
 let currentSettings = null;
@@ -138,6 +140,10 @@ async function renderProgressCard() {
       return;
     }
 
+    if (data.scatter) {
+      scatterDataCache = data.scatter;
+    }
+
     if (!weeks.length) {
       card.style.display = "none";
       return;
@@ -248,6 +254,214 @@ async function renderProgressCard() {
       card.style.display = "none";
     }
   }
+}
+
+function openScatterModal() {
+  const modal = document.getElementById("scatter-modal");
+  if (!modal) {
+    return;
+  }
+  modal.style.display = "flex";
+  if (scatterDataCache) {
+    renderScatterChart(scatterDataCache);
+  }
+}
+
+function closeScatterModal(event) {
+  const modal = document.getElementById("scatter-modal");
+  if (!modal) {
+    return;
+  }
+  if (event && event.target !== modal) {
+    return;
+  }
+  modal.style.display = "none";
+}
+
+function renderScatterChart(scatterData) {
+  const canvas = document.getElementById("scatter-chart");
+  if (!canvas || !window.Chart) {
+    return;
+  }
+  if (scatterChart) {
+    scatterChart.destroy();
+  }
+
+  const monthGroups = {};
+  const latestPoint = scatterData.length ? scatterData[scatterData.length - 1] : null;
+  for (const point of scatterData) {
+    if (latestPoint && point.date === latestPoint.date && point.pace_sec === latestPoint.pace_sec && point.hrm === latestPoint.hrm) {
+      continue;
+    }
+    if (!monthGroups[point.month]) {
+      monthGroups[point.month] = {
+        label: point.month_label,
+        data: [],
+      };
+    }
+    monthGroups[point.month].data.push({
+      x: point.pace_min,
+      y: point.hrm,
+      date: point.date,
+      distance: point.distance_km,
+    });
+  }
+
+  const PERIOD_COLORS = [
+    "#c0dda0", "#8fc46a", "#639922", "#3B6D11",
+    "#27500A", "#3a5040", "#1e2e18",
+  ];
+  const EF_LINES = [
+    { ef: 0.80, color: "#85b7eb", label: "EF 0.80" },
+    { ef: 0.90, color: "#639922", label: "EF 0.90" },
+    { ef: 1.00, color: "#3a5040", label: "EF 1.00" },
+    { ef: 1.10, color: "#c8a020", label: "EF 1.10" },
+    { ef: 1.20, color: "#a04040", label: "EF 1.20" },
+  ];
+
+  const sortedMonths = Object.keys(monthGroups).sort();
+  const scatterDatasets = sortedMonths.map((month, i) => ({
+    label: monthGroups[month].label,
+    data: monthGroups[month].data,
+    backgroundColor: `${PERIOD_COLORS[i % PERIOD_COLORS.length]}cc`,
+    borderColor: PERIOD_COLORS[i % PERIOD_COLORS.length],
+    borderWidth: 1,
+    pointRadius: 6,
+    pointHoverRadius: 8,
+  }));
+
+  if (latestPoint) {
+    scatterDatasets.push({
+      label: "Последняя тренировка",
+      data: [
+        {
+          x: latestPoint.pace_min,
+          y: latestPoint.hrm,
+          date: latestPoint.date,
+          distance: latestPoint.distance_km,
+        },
+      ],
+      backgroundColor: "#b54444",
+      borderColor: "#b54444",
+      borderWidth: 1,
+      pointRadius: 7,
+      pointHoverRadius: 9,
+      order: 1,
+    });
+  }
+
+  const paceRange = [];
+  for (let p = 270; p <= 600; p += 5) {
+    paceRange.push(p);
+  }
+
+  const efLineDatasets = EF_LINES.map(({ ef, color, label }) => ({
+    label,
+    data: paceRange
+      .map((p) => ({
+        x: p / 60,
+        y: (1000 / p * 60) / ef,
+      }))
+      .filter((pt) => pt.y >= 95 && pt.y <= 205),
+    borderColor: color,
+    borderDash: [5, 3],
+    borderWidth: 1.5,
+    pointRadius: 0,
+    type: "line",
+    fill: false,
+    tension: 0,
+    order: 2,
+  }));
+
+  const legendEl = document.getElementById("scatter-legend");
+  if (legendEl) {
+    const periodItems = sortedMonths.map((month, i) => `
+      <span style="display:flex;align-items:center;gap:5px">
+        <span style="width:10px;height:10px;border-radius:50%;background:${PERIOD_COLORS[i % PERIOD_COLORS.length]};display:inline-block"></span>
+        ${monthGroups[month].label}
+      </span>
+    `).join("");
+    const latestItem = latestPoint ? `
+      <span style="display:flex;align-items:center;gap:5px">
+        <span style="width:10px;height:10px;border-radius:50%;background:#b54444;display:inline-block"></span>
+        Последняя
+      </span>
+    ` : "";
+    const efItems = EF_LINES.map(({ ef, color }) => `
+      <span style="display:flex;align-items:center;gap:4px">
+        <span style="width:16px;height:0;border-top:1.5px dashed ${color};display:inline-block;vertical-align:middle"></span>
+        EF ${ef.toFixed(2)}
+      </span>
+    `).join("");
+    legendEl.innerHTML = `
+      <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-right:4px">Периоды:</span>
+      ${periodItems}
+      ${latestItem}
+      <span style="margin-left:8px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-right:4px">EF:</span>
+      ${efItems}
+    `;
+  }
+
+  const paces = scatterData.map((d) => d.pace_min);
+  const hrms = scatterData.map((d) => d.hrm);
+  const paceMin = Math.floor(Math.min(...paces) * 10) / 10 - 0.3;
+  const paceMax = Math.ceil(Math.max(...paces) * 10) / 10 + 0.3;
+  const hrmMin = Math.min(...hrms) - 10;
+  const hrmMax = Math.max(...hrms) + 10;
+
+  scatterChart = new Chart(canvas, {
+    type: "scatter",
+    data: {
+      datasets: [
+        ...efLineDatasets,
+        ...scatterDatasets,
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          filter: (ctx) => ctx.dataset.type !== "line",
+          callbacks: {
+            label(ctx) {
+              const d = ctx.raw;
+              const paceStr = formatPace(Math.round(d.x * 60));
+              return [
+                `${d.date}`,
+                `Темп: ${paceStr}/км`,
+                `Пульс: ${d.y} уд/мин`,
+                `Дистанция: ${d.distance?.toFixed(2) ?? "—"} км`,
+              ];
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          title: { display: true, text: "Темп (мин/км)", font: { size: 11 }, color: "#90a89a" },
+          min: paceMin,
+          max: paceMax,
+          ticks: {
+            font: { size: 10 },
+            color: "#90a89a",
+            callback(value) {
+              return formatPace(Math.round(Number(value) * 60));
+            },
+          },
+          grid: { color: "rgba(128,128,128,0.08)" },
+        },
+        y: {
+          title: { display: true, text: "Пульс (уд/мин)", font: { size: 11 }, color: "#90a89a" },
+          min: hrmMin,
+          max: hrmMax,
+          ticks: { font: { size: 10 }, color: "#90a89a" },
+          grid: { color: "rgba(128,128,128,0.08)" },
+        },
+      },
+    },
+  });
 }
 
 function renderDashboardMetrics(activities) {

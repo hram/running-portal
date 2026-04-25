@@ -133,6 +133,27 @@ async def get_progress() -> dict[str, object]:
         if prev > 0:
             trend = round((recent - prev) / prev * 100, 1)
 
+    scatter: list[dict[str, object]] = []
+    for activity in activities:
+        if not activity.get("avg_pace") or not activity.get("avg_hrm"):
+            continue
+        try:
+            dt = datetime.fromisoformat(str(activity["date"]).replace("Z", "+00:00"))
+        except Exception:
+            continue
+        pace_min_km = round(float(activity["avg_pace"]) / 60, 3)
+        scatter.append(
+            {
+                "date": str(activity["date"])[:10],
+                "pace_sec": activity["avg_pace"],
+                "pace_min": pace_min_km,
+                "hrm": activity["avg_hrm"],
+                "distance_km": activity.get("distance_km"),
+                "month": dt.strftime("%Y-%m"),
+                "month_label": dt.strftime("%m.%Y"),
+            }
+        )
+
     return {
         "weeks": weeks_data,
         "summary": {
@@ -143,6 +164,7 @@ async def get_progress() -> dict[str, object]:
             "trend": trend,
             "total_weeks": len(weeks_data),
         },
+        "scatter": scatter,
     }
 
 
@@ -207,4 +229,3 @@ async def load_all_activity_details() -> dict[str, object]:
         "failed": len(failed),
         "failed_activity_ids": failed,
     }
-

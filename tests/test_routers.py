@@ -200,3 +200,6 @@ async def test_activities_progress_returns_weekly_ef(test_client):
     assert payload["summary"]["last_ef"] > 0
     assert payload["summary"]["max_ef"] >= payload["summary"]["first_ef"]
     assert payload["summary"]["total_weeks"] == len(payload["weeks"])
+    assert len(payload["scatter"]) == 6
+    assert payload["scatter"][0]["month"]
+    assert payload["scatter"][0]["month_label"]
