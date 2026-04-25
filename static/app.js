@@ -7,8 +7,72 @@ let scatterDataCache = null;
 let currentActivity = null;
 let currentDetails = null;
 let currentSettings = null;
+let currentChartMode = "time";
 let runsPage = 0;
 const RUNS_PAGE_SIZE = 10;
+
+function pickRenderableDetails(details) {
+  if (!details) {
+    return null;
+  }
+  if (Array.isArray(details.samples) && details.samples.length) {
+    return details;
+  }
+  if (details.raw_detail && Array.isArray(details.raw_detail.samples) && details.raw_detail.samples.length) {
+    return details.raw_detail;
+  }
+  return details.raw_detail || details;
+}
+
+function bindDetailChartModeToggle() {
+  const btnTime = document.getElementById("btn-by-time");
+  const btnDist = document.getElementById("btn-by-dist");
+
+  if (btnTime && !btnTime.dataset.boundChartMode) {
+    btnTime.addEventListener("click", () => switchChartMode("time"));
+    btnTime.dataset.boundChartMode = "true";
+  }
+  if (btnDist && !btnDist.dataset.boundChartMode) {
+    btnDist.addEventListener("click", () => switchChartMode("distance"));
+    btnDist.dataset.boundChartMode = "true";
+  }
+}
+
+function buildDistanceSeries(samples, trackPoints, activityDistanceKm) {
+  const trackPointsWithDistance = trackPoints.filter((point) => point.distance_meters != null);
+  if (trackPointsWithDistance.length) {
+    return {
+      labels: trackPointsWithDistance.map((point) => Math.round(point.distance_meters)),
+      heartRate: trackPointsWithDistance.map((point) => point.heart_rate || null),
+      speed: trackPointsWithDistance.map((point) => point.speed_mps ? Number((point.speed_mps * 3.6).toFixed(2)) : null),
+    };
+  }
+
+  const sampleSteps = samples.map((sample) => Number(sample.distance_meters || 0));
+  const totalRawDistance = sampleSteps.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
+  const targetMeters = Number(activityDistanceKm || 0) * 1000;
+  if (!totalRawDistance || !targetMeters) {
+    return null;
+  }
+
+  const scale = targetMeters / totalRawDistance;
+  let cumulative = 0;
+  const labels = sampleSteps.map((value) => {
+    cumulative += Number.isFinite(value) ? value : 0;
+    return Math.round(cumulative * scale);
+  });
+
+  return {
+    labels,
+    heartRate: samples.map((sample, index) => sample.heart_rate || trackPoints[index]?.heart_rate || null),
+    speed: labels.map((_, index) => {
+      const pointSpeed = trackPoints[index]?.speed_mps;
+      const sampleSpeed = samples[index]?.speed_mps;
+      const speedMps = pointSpeed ?? sampleSpeed ?? null;
+      return speedMps ? Number((speedMps * 3.6).toFixed(2)) : null;
+    }),
+  };
+}
 const STATUS_LABELS = {
   run: "🏃 Бежать",
   run_easy: "🚶 Бежать легко",
@@ -719,6 +783,7 @@ async function changeRunsPage(delta) {
 }
 
 async function initDetailPage(activityId) {
+  bindDetailChartModeToggle();
   const script = document.getElementById("activity-data");
   if (!script) {
     return;
@@ -750,8 +815,8 @@ async function initDetailPage(activityId) {
 
   const payload = await response.json();
   if (payload.details) {
-    currentDetails = payload.details.raw_detail || payload.details;
-    renderDetailChart(currentDetails);
+    currentDetails = pickRenderableDetails(payload.details);
+    renderDetailChart(currentDetails, currentChartMode);
     setDetailStatus("Детали уже доступны");
     if (button) {
       button.style.display = "none";
@@ -810,7 +875,7 @@ function renderZoneBars(activity) {
   }).join("");
 }
 
-function renderDetailChart(details) {
+function renderDetailChart(details, mode = "time") {
   const canvas = document.getElementById("hr-chart");
   const efCanvas = document.getElementById("ef-detail-chart");
   const labelsRoot = document.getElementById("detail-chart-labels");
@@ -832,19 +897,58 @@ function renderDetailChart(details) {
     efDetailChart.destroy();
   }
 
+  const toggle = document.getElementById("chart-mode-toggle");
+  const btnDist = document.getElementById("btn-by-dist");
+  const title = document.getElementById("detail-chart-title");
+  const distanceSeries = buildDistanceSeries(samples, trackPoints, currentActivity?.distance_km);
+  const hasDistance = Boolean(distanceSeries?.labels?.length);
+  const effectiveMode = mode === "distance" && hasDistance ? "distance" : "time";
+  currentChartMode = effectiveMode;
+  if (toggle) {
+    toggle.style.display = "flex";
+  }
+  if (btnDist) {
+    btnDist.disabled = !hasDistance;
+    btnDist.title = !hasDistance ? "GPS данные недоступны" : "";
+  }
+  if (title) {
+    title.textContent = effectiveMode === "distance"
+      ? "Пульс и скорость по дистанции"
+      : "Пульс и скорость по времени";
+  }
+  document.getElementById("btn-by-time")?.classList.toggle("active", effectiveMode === "time");
+  document.getElementById("btn-by-dist")?.classList.toggle("active", effectiveMode === "distance");
+
   const baseTime = samples[0].start_time || samples[0].timestamp || 0;
-  const labels = samples.map((sample) => {
+  const timeLabels = samples.map((sample) => {
     const t = sample.start_time || sample.timestamp || baseTime;
-    return Math.max(0, Math.round((t - baseTime) / 60));
+    return Math.max(0, Number(((t - baseTime) / 60).toFixed(2)));
   });
-  const maxMinutes = labels[labels.length - 1] || 0;
-  const heartRate = samples.map((sample) => sample.heart_rate);
-  const speed = trackPoints.length
-    ? trackPoints.slice(0, labels.length).map((point) => point.speed_mps ? Number((point.speed_mps * 3.6).toFixed(2)) : null)
+  const timeHeartRate = samples.map((sample) => sample.heart_rate);
+  const timeSpeed = trackPoints.length
+    ? trackPoints.slice(0, timeLabels.length).map((point) => point.speed_mps ? Number((point.speed_mps * 3.6).toFixed(2)) : null)
     : samples.map((sample) => sample.speed_mps ? Number((sample.speed_mps * 3.6).toFixed(2)) : null);
+
+  let labels;
+  let heartRate;
+  let speed;
+
+  if (effectiveMode === "distance") {
+    labels = distanceSeries.labels;
+    heartRate = distanceSeries.heartRate;
+    speed = distanceSeries.speed;
+  } else {
+    labels = timeLabels;
+    heartRate = timeHeartRate;
+    speed = timeSpeed;
+  }
+
+  const maxAxisValue = labels[labels.length - 1] || 0;
+  const heartRatePoints = labels.map((x, index) => ({ x, y: heartRate[index] }));
+  const speedPoints = labels.map((x, index) => ({ x, y: speed[index] }));
   const ef = labels.map((_, index) => {
-    const hr = heartRate[index];
-    const speedKmh = speed[index];
+    const hr = timeHeartRate[index];
+    const speedKmh = timeSpeed[index];
     if (!hr || !speedKmh) {
       return null;
     }
@@ -853,23 +957,28 @@ function renderDetailChart(details) {
   });
   const zoneLowValue = Number(currentSettings?.target_hr_zone_low ?? 140);
   const zoneHighValue = Number(currentSettings?.target_hr_zone_high ?? 160);
-  const zoneLow = labels.map(() => zoneLowValue);
-  const zoneHigh = labels.map(() => zoneHighValue);
+  const zoneLow = labels.map((x) => ({ x, y: zoneLowValue }));
+  const zoneHigh = labels.map((x) => ({ x, y: zoneHighValue }));
 
   if (labelsRoot) {
-    const anchors = [0, Math.floor(maxMinutes * 0.25), Math.floor(maxMinutes * 0.5), Math.floor(maxMinutes * 0.75), maxMinutes];
+    const anchors = [0, Math.round(maxAxisValue * 0.25), Math.round(maxAxisValue * 0.5), Math.round(maxAxisValue * 0.75), maxAxisValue];
     const uniqueAnchors = [...new Set(anchors)];
-    labelsRoot.innerHTML = uniqueAnchors.map((minute) => `<span>${minute} м</span>`).join("");
+    if (effectiveMode === "distance") {
+      labelsRoot.innerHTML = uniqueAnchors
+        .map((value) => `<span>${value >= 1000 ? `${(value / 1000).toFixed(1)}км` : `${value}м`}</span>`)
+        .join("");
+    } else {
+      labelsRoot.innerHTML = uniqueAnchors.map((minute) => `<span>${minute} м</span>`).join("");
+    }
   }
 
   detailChart = new Chart(canvas, {
     type: "line",
     data: {
-      labels,
       datasets: [
         {
           label: "Пульс",
-          data: heartRate,
+          data: heartRatePoints,
           borderColor: "#b54444",
           backgroundColor: "rgba(181,68,68,0.08)",
           yAxisID: "y",
@@ -877,7 +986,7 @@ function renderDetailChart(details) {
         },
         {
           label: "Скорость км/ч",
-          data: speed,
+          data: speedPoints,
           borderColor: "#4f7db8",
           yAxisID: "y1",
           tension: 0.18,
@@ -912,6 +1021,9 @@ function renderDetailChart(details) {
       },
       scales: {
         x: {
+          type: "linear",
+          min: 0,
+          max: maxAxisValue,
           ticks: { display: false },
           grid: { color: "rgba(255,255,255,0.05)" },
         },
@@ -951,7 +1063,7 @@ function renderDetailChart(details) {
   efDetailChart = new Chart(efCanvas, {
     type: "line",
     data: {
-      labels,
+      labels: timeLabels,
       datasets: [
         {
           label: "EF",
@@ -1018,8 +1130,8 @@ async function loadActivityDetails() {
     if (!response.ok) {
       throw new Error(payload.detail || payload.error || "Не удалось загрузить детали");
     }
-    currentDetails = payload.details.raw_detail || payload.details;
-    renderDetailChart(currentDetails);
+    currentDetails = pickRenderableDetails(payload.details);
+    renderDetailChart(currentDetails, currentChartMode);
     setDetailStatus("Детали загружены");
     if (button) {
       button.style.display = "none";
@@ -1035,6 +1147,14 @@ async function loadActivityDetails() {
 
 async function loadDetail() {
   await loadActivityDetails();
+}
+
+function switchChartMode(mode) {
+  if (!currentDetails) {
+    return;
+  }
+  currentChartMode = mode;
+  renderDetailChart(currentDetails, mode);
 }
 
 async function requestAiAnalysis() {
@@ -1271,3 +1391,14 @@ async function saveSettings() {
     }
   }
 }
+
+window.triggerSync = triggerSync;
+window.openScatterModal = openScatterModal;
+window.closeScatterModal = closeScatterModal;
+window.loadDetail = loadDetail;
+window.switchChartMode = switchChartMode;
+window.getAnalysis = getAnalysis;
+window.refreshRecommendation = refreshRecommendation;
+window.loadAllRunDetails = loadAllRunDetails;
+window.changeRunsPage = changeRunsPage;
+window.saveSettings = saveSettings;

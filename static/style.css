@@ -287,6 +287,33 @@ nav {
 .chart-labels-detail span:first-child {
   margin-left: 12px;
 }
+.chart-mode-toggle {
+  display: flex;
+  border: 0.5px solid var(--border-card);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.toggle-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+  border-radius: 0;
+}
+.toggle-btn:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+.toggle-btn.active {
+  background: var(--accent);
+  color: var(--bg-card);
+}
+.toggle-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 .detail-chart-legend {
   display: flex;
   gap: 18px;

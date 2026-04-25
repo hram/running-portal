@@ -27,8 +27,8 @@
       <span class="spinner"></span> Тренер анализирует...
     </div>
     <div id="ai-controls">
-      <button class="btn btn-primary" onclick="getAnalysis()">Получить анализ</button>
-      <button class="btn" onclick="getAnalysis(true)" id="refresh-btn" style="display:none">Обновить</button>
+      <button class="btn btn-primary" type="button" onclick="getAnalysis()">Получить анализ</button>
+      <button class="btn" type="button" onclick="getAnalysis(true)" id="refresh-btn" style="display:none">Обновить</button>
       <span id="ai-cached-badge" class="badge" style="display:none">из кэша</span>
     </div>
   </div>
@@ -44,19 +44,25 @@
 
   <div class="card">
     <div class="card-header">
-      <span class="card-title">Пульс и скорость по времени</span>
-      <div class="detail-chart-legend">
-        <div class="detail-chart-legend-item">
-          <span class="detail-chart-legend-line detail-chart-legend-line--heart"></span>
-          <span>Пульс</span>
+      <span class="card-title" id="detail-chart-title">Пульс и скорость по времени</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="chart-mode-toggle" id="chart-mode-toggle" style="display:none">
+          <button class="toggle-btn active" type="button" id="btn-by-time">по времени</button>
+          <button class="toggle-btn" type="button" id="btn-by-dist">по дистанции</button>
         </div>
-        <div class="detail-chart-legend-item">
-          <span class="detail-chart-legend-line detail-chart-legend-line--speed"></span>
-          <span>Скорость км/ч</span>
-        </div>
-        <div class="detail-chart-legend-item">
-          <span class="detail-chart-legend-line detail-chart-legend-line--zone"></span>
-          <span>Зона {{ settings.target_hr_zone_low }}–{{ settings.target_hr_zone_high }}</span>
+        <div class="detail-chart-legend">
+          <div class="detail-chart-legend-item">
+            <span class="detail-chart-legend-line detail-chart-legend-line--heart"></span>
+            <span>Пульс</span>
+          </div>
+          <div class="detail-chart-legend-item">
+            <span class="detail-chart-legend-line detail-chart-legend-line--speed"></span>
+            <span>Скорость км/ч</span>
+          </div>
+          <div class="detail-chart-legend-item">
+            <span class="detail-chart-legend-line detail-chart-legend-line--zone"></span>
+            <span>Зона {{ settings.target_hr_zone_low }}–{{ settings.target_hr_zone_high }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -71,7 +77,7 @@
       <canvas id="ef-detail-chart"></canvas>
     </div>
     <div class="chart-labels chart-labels-detail" id="detail-chart-labels"></div>
-    <button class="btn" id="load-detail-btn" onclick="loadDetail()" style="margin-top:10px;display:none">
+    <button class="btn" type="button" id="load-detail-btn" onclick="loadDetail()" style="margin-top:10px;display:none">
       Загрузить детали
     </button>
   </div>
