@@ -2,6 +2,7 @@ let dashboardChart = null;
 let detailChart = null;
 let currentActivity = null;
 let currentDetails = null;
+let currentSettings = null;
 const STATUS_LABELS = {
   run: "🏃 Бежать",
   run_easy: "🚶 Бежать легко",
@@ -65,6 +66,16 @@ function formatDate(isoString) {
   }).format(new Date(isoString));
 }
 
+function formatShortDate(isoString) {
+  if (!isoString) {
+    return "—";
+  }
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+  }).format(new Date(isoString));
+}
+
 function hrColor(hr) {
   if (hr === null || hr === undefined) {
     return "var(--text2)";
@@ -87,10 +98,10 @@ function formatHours(hours) {
 
 function metricCard(label, value, subtext = "") {
   return `
-    <article class="metric-card">
+    <article class="metric">
       <p class="metric-label">${label}</p>
       <p class="metric-value">${value}</p>
-      <div class="metric-subtext">${subtext || "&nbsp;"}</div>
+      <div class="metric-sub">${subtext || "&nbsp;"}</div>
     </article>
   `;
 }
@@ -119,28 +130,30 @@ function renderDashboardMetrics(activities) {
   }
 
   const latest = activities[0];
-  const latestLabel = `${formatDate(latest.date)} · ${Number(latest.distance_km).toFixed(2)} км`;
   const avgHrRuns = activities.slice(0, 7).filter((item) => item.avg_hrm);
   const avgHr = avgHrRuns.length
     ? Math.round(avgHrRuns.reduce((sum, item) => sum + item.avg_hrm, 0) / avgHrRuns.length)
     : null;
-  const maxDistance = activities.reduce((max, item) => Math.max(max, item.distance_km || 0), 0);
+  const recordRun = activities.reduce(
+    (best, item) => ((item.distance_km || 0) > (best.distance_km || 0) ? item : best),
+    activities[0]
+  );
 
   root.innerHTML = [
-    metricCard("Последняя пробежка", latestLabel, "Последняя запись в базе"),
-    metricCard("Всего пробежек", String(activities.length), "Количество синхронизированных записей"),
-    metricCard("Средний пульс", avgHr ? `${avgHr} bpm` : "—", "Среднее за последние 7 пробежек"),
-    metricCard("Личный рекорд", `${maxDistance.toFixed(2)} км`, "Максимальная дистанция"),
+    metricCard("Последняя", latest.distance_km ? Number(latest.distance_km).toFixed(2) : "—", `км · ${formatDate(latest.date)}`),
+    metricCard("Всего", String(activities.length), "пробежек"),
+    metricCard("Пульс", avgHr ? String(avgHr) : "—", "среднее · 7 пробежек"),
+    metricCard("Рекорд", recordRun.distance_km ? Number(recordRun.distance_km).toFixed(2) : "—", `км · ${formatDate(recordRun.date)}`),
   ].join("");
 }
 
 function renderDashboardAlerts(activities) {
-  const root = document.getElementById("alerts");
+  const root = document.getElementById("alerts-section");
   if (!root) {
     return;
   }
   if (!activities.length) {
-    root.innerHTML = '<div class="alert alert-warning">Нет данных для анализа алертов.</div>';
+    root.innerHTML = '<div class="alert alert-warning"><span class="alert-dot"></span>Нет данных для анализа алертов.</div>';
     return;
   }
 
@@ -168,11 +181,13 @@ function renderDashboardAlerts(activities) {
     alerts.push({ cls: "alert-success", text: "🟢 Всё в норме. Нагрузка и пульс в ожидаемом диапазоне." });
   }
 
-  root.innerHTML = alerts.map((item) => `<div class="alert ${item.cls}">${item.text}</div>`).join("");
+  root.innerHTML = alerts
+    .map((item) => `<div class="alert ${item.cls}"><span class="alert-dot"></span>${item.text}</div>`)
+    .join("");
 }
 
 function renderDistanceChart(activities) {
-  const canvas = document.getElementById("distance-chart");
+  const canvas = document.getElementById("dist-chart");
   if (!canvas || !window.Chart) {
     return;
   }
@@ -181,16 +196,27 @@ function renderDistanceChart(activities) {
     dashboardChart.destroy();
   }
 
+  const labels = activities.map((item) => formatShortDate(item.date));
+  const visibleTickIndexes = new Set();
+  if (labels.length) {
+    const anchors = [0, Math.floor((labels.length - 1) * 0.25), Math.floor((labels.length - 1) * 0.5), Math.floor((labels.length - 1) * 0.75), labels.length - 1];
+    anchors.forEach((index) => visibleTickIndexes.add(index));
+  }
+
   dashboardChart = new Chart(canvas, {
     type: "bar",
     data: {
-      labels: activities.map((item) => formatDate(item.date)),
+      labels,
       datasets: [
         {
           label: "Дистанция, км",
           data: activities.map((item) => item.distance_km),
-          backgroundColor: "rgba(55, 138, 221, 0.72)",
-          borderRadius: 8,
+          backgroundColor: activities.map((_, i) =>
+            i === activities.length - 1 ? "#3a5040" : "rgba(58,80,64,0.25)"
+          ),
+          borderRadius: 6,
+          barPercentage: 0.92,
+          categoryPercentage: 0.98,
         },
       ],
     },
@@ -201,7 +227,16 @@ function renderDistanceChart(activities) {
         legend: { display: false },
       },
       scales: {
-        x: { ticks: { color: "#9b9b96" }, grid: { display: false } },
+        x: {
+          ticks: {
+            color: "#9b9b96",
+            autoSkip: false,
+            callback(value, index) {
+              return visibleTickIndexes.has(index) ? labels[index] : "";
+            },
+          },
+          grid: { display: false },
+        },
         y: { ticks: { color: "#9b9b96" }, grid: { color: "rgba(255,255,255,0.08)" } },
       },
     },
@@ -209,7 +244,7 @@ function renderDistanceChart(activities) {
 }
 
 function renderRunsTable(activities) {
-  const body = document.getElementById("runs-table-body");
+  const body = document.getElementById("run-list");
   if (!body) {
     return;
   }
@@ -222,13 +257,13 @@ function renderRunsTable(activities) {
   body.innerHTML = activities.map((item) => {
     const pace = formatPace(item.avg_pace);
     const recovery = item.recover_time !== null && item.recover_time !== undefined
-      ? `${Math.round(item.recover_time / 60)} ч`
+      ? `${Math.round(item.recover_time)} ч`
       : "—";
     return `
       <tr>
         <td><a class="run-link" href="/activity/${encodeURIComponent(item.activity_id)}">${formatDate(item.date)}</a></td>
         <td>${Number(item.distance_km).toFixed(2)} км</td>
-        <td style="color:${hrColor(item.avg_hrm)}">${item.avg_hrm ?? "—"}</td>
+        <td class="${item.avg_hrm <= 160 ? "hr-green" : item.avg_hrm <= 180 ? "hr-amber" : "hr-red"}">${item.avg_hrm ?? "—"}</td>
         <td>${pace}</td>
         <td>${item.train_load ?? "—"}</td>
         <td>${recovery}</td>
@@ -242,12 +277,15 @@ async function initDetailPage(activityId) {
   if (!script) {
     return;
   }
+  const settingsScript = document.getElementById("settings-data");
 
   currentActivity = JSON.parse(script.textContent);
+  currentSettings = settingsScript ? JSON.parse(settingsScript.textContent) : null;
   currentDetails = null;
 
   const activityDate = document.getElementById("detail-date-title");
   const distanceTitle = document.getElementById("detail-distance-title");
+  const button = document.getElementById("load-detail-btn");
   if (activityDate) {
     activityDate.textContent = formatDate(currentActivity.date);
   }
@@ -269,13 +307,18 @@ async function initDetailPage(activityId) {
     currentDetails = payload.details.raw_detail || payload.details;
     renderDetailChart(currentDetails);
     setDetailStatus("Детали уже доступны");
-    const button = document.getElementById("load-detail-btn");
     if (button) {
-      button.textContent = "Обновить детали";
+      button.style.display = "none";
     }
   } else {
     setDetailStatus("Детали ещё не загружены");
+    if (button) {
+      button.style.display = "inline-flex";
+      button.textContent = "Загрузить детали";
+    }
   }
+
+  await loadCachedAnalysis();
 }
 
 function renderDetailMetrics(activity) {
@@ -289,21 +332,21 @@ function renderDetailMetrics(activity) {
     metricCard("Каденс", activity.avg_cadence ?? "—", "Шагов в минуту"),
     metricCard("Длина шага", activity.avg_stride ? `${activity.avg_stride} см` : "—", "Средняя длина шага"),
     metricCard("Нагрузка", activity.train_load ?? "—", "Train load"),
-    metricCard("Восстановление", formatHours(Math.round((activity.recover_time || 0) / 60)), "Прогноз восстановления"),
+    metricCard("Восстановление", formatHours(Math.round(activity.recover_time || 0)), "Прогноз восстановления"),
   ].join("");
 }
 
 function renderZoneBars(activity) {
-  const root = document.getElementById("zone-bars");
+  const root = document.getElementById("zones-section");
   if (!root) {
     return;
   }
 
   const zones = [
-    { label: "Жиросжигание", value: activity.hrm_fat_burning_duration || 0, color: "var(--blue)" },
-    { label: "Аэробная", value: activity.hrm_aerobic_duration || 0, color: "var(--green)" },
-    { label: "Анаэробная", value: activity.hrm_anaerobic_duration || 0, color: "var(--amber)" },
-    { label: "Экстремальная", value: activity.hrm_extreme_duration || 0, color: "var(--red)" },
+    { label: "Жиросжигание", value: activity.hrm_fat_burning_duration || 0, color: "#85b7eb" },
+    { label: "Аэробная", value: activity.hrm_aerobic_duration || 0, color: "#3a5040" },
+    { label: "Анаэробная", value: activity.hrm_anaerobic_duration || 0, color: "#c8a020" },
+    { label: "Экстремальная", value: activity.hrm_extreme_duration || 0, color: "#a04040" },
   ];
 
   const total = zones.reduce((sum, zone) => sum + zone.value, 0) || 1;
@@ -311,18 +354,19 @@ function renderZoneBars(activity) {
     const percent = Math.round((zone.value / total) * 100);
     return `
       <div class="zone-row">
-        <div class="zone-label">${zone.label}</div>
-        <div class="zone-track">
+        <div class="zone-name">${zone.label}</div>
+        <div class="zone-bar-wrap">
           <div class="zone-bar" style="width:${percent}%; background:${zone.color}"></div>
         </div>
-        <div class="zone-value">${percent}%</div>
+        <div class="zone-pct">${percent}%</div>
       </div>
     `;
   }).join("");
 }
 
 function renderDetailChart(details) {
-  const canvas = document.getElementById("detail-chart");
+  const canvas = document.getElementById("hr-chart");
+  const labelsRoot = document.getElementById("detail-chart-labels");
   if (!canvas || !window.Chart) {
     return;
   }
@@ -343,12 +387,21 @@ function renderDetailChart(details) {
     const t = sample.start_time || sample.timestamp || baseTime;
     return Math.max(0, Math.round((t - baseTime) / 60));
   });
+  const maxMinutes = labels[labels.length - 1] || 0;
   const heartRate = samples.map((sample) => sample.heart_rate);
   const speed = trackPoints.length
     ? trackPoints.slice(0, labels.length).map((point) => point.speed_mps ? Number((point.speed_mps * 3.6).toFixed(2)) : null)
     : samples.map((sample) => sample.speed_mps ? Number((sample.speed_mps * 3.6).toFixed(2)) : null);
-  const zoneLow = labels.map(() => 140);
-  const zoneHigh = labels.map(() => 160);
+  const zoneLowValue = Number(currentSettings?.target_hr_zone_low ?? 140);
+  const zoneHighValue = Number(currentSettings?.target_hr_zone_high ?? 160);
+  const zoneLow = labels.map(() => zoneLowValue);
+  const zoneHigh = labels.map(() => zoneHighValue);
+
+  if (labelsRoot) {
+    const anchors = [0, Math.floor(maxMinutes * 0.25), Math.floor(maxMinutes * 0.5), Math.floor(maxMinutes * 0.75), maxMinutes];
+    const uniqueAnchors = [...new Set(anchors)];
+    labelsRoot.innerHTML = uniqueAnchors.map((minute) => `<span>${minute} м</span>`).join("");
+  }
 
   detailChart = new Chart(canvas, {
     type: "line",
@@ -358,16 +411,15 @@ function renderDetailChart(details) {
         {
           label: "Пульс",
           data: heartRate,
-          borderColor: "#e24b4a",
-          backgroundColor: "rgba(226, 75, 74, 0.2)",
+          borderColor: "#b54444",
+          backgroundColor: "rgba(181,68,68,0.08)",
           yAxisID: "y",
           tension: 0.22,
         },
         {
           label: "Скорость км/ч",
           data: speed,
-          borderColor: "#378add",
-          borderDash: [8, 6],
+          borderColor: "#4f7db8",
           yAxisID: "y1",
           tension: 0.18,
         },
@@ -379,7 +431,7 @@ function renderDetailChart(details) {
           yAxisID: "y",
         },
         {
-          label: "Зона 140–160",
+          label: `Зона ${zoneLowValue}–${zoneHighValue}`,
           data: zoneHigh,
           borderColor: "rgba(99, 153, 34, 0)",
           backgroundColor: "rgba(99, 153, 34, 0.16)",
@@ -392,28 +444,47 @@ function renderDetailChart(details) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      devicePixelRatio: 2,
+      animation: false,
       interaction: { mode: "index", intersect: false },
+      elements: {
+        line: { borderWidth: 2 },
+        point: { radius: 0 },
+      },
       scales: {
         x: {
-          title: { display: true, text: "Минуты" },
-          ticks: { color: "#9b9b96" },
+          ticks: { display: false },
           grid: { color: "rgba(255,255,255,0.05)" },
         },
         y: {
           position: "left",
-          ticks: { color: "#9b9b96" },
+          ticks: { color: "#90a89a", font: { size: 11 } },
           grid: { color: "rgba(255,255,255,0.08)" },
         },
         y1: {
           position: "right",
-          ticks: { color: "#9b9b96" },
+          ticks: { color: "#90a89a", font: { size: 11 } },
           grid: { drawOnChartArea: false },
         },
       },
       plugins: {
-        legend: {
-          labels: { color: "#e8e6de" },
+        tooltip: {
+          filter(context) {
+            return context.datasetIndex === 0 || context.datasetIndex === 1;
+          },
+          callbacks: {
+            label(context) {
+              if (context.datasetIndex === 0) {
+                return `Пульс: ${context.parsed.y} уд/мин`;
+              }
+              if (context.datasetIndex === 1) {
+                return `Скорость: ${context.parsed.y} км/ч`;
+              }
+              return "";
+            },
+          },
         },
+        legend: { display: false },
       },
     },
   });
@@ -438,6 +509,9 @@ async function loadActivityDetails() {
     currentDetails = payload.details.raw_detail || payload.details;
     renderDetailChart(currentDetails);
     setDetailStatus("Детали загружены");
+    if (button) {
+      button.style.display = "none";
+    }
   } catch (error) {
     setDetailStatus(error.message);
   } finally {
@@ -445,6 +519,10 @@ async function loadActivityDetails() {
       button.disabled = false;
     }
   }
+}
+
+async function loadDetail() {
+  await loadActivityDetails();
 }
 
 async function requestAiAnalysis() {
@@ -498,11 +576,25 @@ async function loadTodayRecommendation() {
     }
 
     card.className = `today-card today-card--${data.status}`;
-    document.getElementById("today-icon").textContent =
-      data.status === "run" ? "🏃" : data.status === "run_easy" ? "🚶" : "😴";
     document.getElementById("today-status").textContent =
       STATUS_LABELS[data.status] || data.status;
     document.getElementById("today-message").textContent = data.message;
+    const meta = document.getElementById("today-meta");
+    if (meta) {
+      const generated = data.generated_at
+        ? new Date(data.generated_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })
+        : "—";
+      meta.innerHTML = `
+        <div>
+          <div class="today-stat-label">статус</div>
+          <div class="today-stat-value">${STATUS_LABELS[data.status] || data.status}</div>
+        </div>
+        <div>
+          <div class="today-stat-label">обновлено</div>
+          <div class="today-stat-value">${generated}</div>
+        </div>
+      `;
+    }
   } catch (error) {
     document.getElementById("today-status").textContent = "Ошибка загрузки";
   }
@@ -591,4 +683,79 @@ async function getAnalysis(forceRefresh = false) {
     resultEl.textContent += "\n[Соединение прервано]";
     source.close();
   };
+}
+
+async function loadCachedAnalysis() {
+  const activityId = document.getElementById("activity-id")?.value;
+  const resultEl = document.getElementById("ai-result");
+  const cachedBadge = document.getElementById("ai-cached-badge");
+  const refreshBtn = document.getElementById("refresh-btn");
+
+  if (!activityId || !resultEl || !cachedBadge || !refreshBtn) {
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/ai/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ activity_id: activityId, force_refresh: false }),
+    });
+    const data = await res.json();
+    if (data.cached && data.analysis) {
+      resultEl.textContent = data.analysis;
+      resultEl.style.display = "block";
+      cachedBadge.style.display = "inline-block";
+      refreshBtn.style.display = "inline-block";
+    }
+  } catch (error) {
+    // Ignore cache lookup errors on initial page load.
+  }
+}
+
+async function initSettingsPage() {
+  const status = document.getElementById("settings-status");
+  if (status) {
+    status.textContent = "Изменения применяются сразу после сохранения.";
+  }
+}
+
+async function saveSettings() {
+  const status = document.getElementById("settings-status");
+  const dailyPrompt = document.getElementById("daily-prompt-template");
+  const activityPrompt = document.getElementById("activity-prompt-template");
+  const zoneLow = document.getElementById("target-hr-zone-low");
+  const zoneHigh = document.getElementById("target-hr-zone-high");
+
+  if (!dailyPrompt || !activityPrompt || !zoneLow || !zoneHigh) {
+    return;
+  }
+
+  if (status) {
+    status.textContent = "Сохраняю...";
+  }
+
+  try {
+    const response = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        daily_prompt_template: dailyPrompt.value,
+        activity_prompt_template: activityPrompt.value,
+        target_hr_zone_low: Number(zoneLow.value),
+        target_hr_zone_high: Number(zoneHigh.value),
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.detail || payload.error || "Не удалось сохранить настройки");
+    }
+    if (status) {
+      status.textContent = "Сохранено.";
+    }
+  } catch (error) {
+    if (status) {
+      status.textContent = `Ошибка: ${error.message}`;
+    }
+  }
 }

@@ -4,77 +4,86 @@
 
 {% block content %}
 {% if activity %}
-<section class="detail-hero">
-  <div class="detail-backline">
-    <a href="/" class="back-link">← Назад</a>
-    <span class="detail-title">Пробежка <span id="detail-date-title"></span></span>
-    <span class="detail-distance" id="detail-distance-title"></span>
-  </div>
-</section>
-
-<section class="panel">
-  <div class="section-head">
-    <h2>Метрики пробежки</h2>
-    <p>Основные показатели конкретного выхода.</p>
-  </div>
-  <div id="detail-metrics" class="metrics metrics-6"></div>
-</section>
-
-<section class="panel">
-  <div class="section-head">
-    <h2>Пульсовые зоны</h2>
-    <p>Распределение времени по зонам нагрузки.</p>
-  </div>
-  <div id="zone-bars" class="zone-bars"></div>
-</section>
-
-<section class="panel">
-  <div class="section-head">
-    <h2>Пульс и скорость по времени</h2>
-    <p>Если детали не загружены, можно запросить их отдельно.</p>
-  </div>
-  <div class="detail-actions">
-    <button id="load-detail-btn" type="button" onclick="loadActivityDetails()">Загрузить детали</button>
-    <span id="detail-status" class="status-pill"></span>
-  </div>
-  <div class="chart-container">
-    <canvas id="detail-chart"></canvas>
-  </div>
-</section>
-
-<section class="panel" id="ai-section">
-  <div class="section-head">
-    <h2>AI тренер</h2>
-    <span class="card-hint">Персональный анализ на основе твоих данных</span>
+<div class="page">
+  <div style="margin-bottom:16px">
+    <a href="/" style="font-size:12px;color:var(--text3)">← Назад</a>
+    <span style="font-size:12px;color:var(--text3);margin:0 8px">·</span>
+    <span style="font-size:13px;font-weight:500;color:var(--text)">
+      Пробежка {{ activity.date[:10] }}
+    </span>
+    <span style="font-size:13px;color:var(--accent);margin-left:8px">
+      {{ activity.distance_km }} км
+    </span>
   </div>
 
-  <input type="hidden" id="activity-id" value="{{ activity.activity_id }}">
-
-  <div id="ai-result" class="ai-bubble" style="display:none"></div>
-
-  <div id="ai-loading" style="display:none">
-    <span class="spinner"></span> Тренер анализирует пробежку...
+  <div class="card" id="ai-section">
+    <div class="card-header">
+      <span class="card-title">AI тренер</span>
+      <span class="card-hint">Персональный анализ</span>
+    </div>
+    <input type="hidden" id="activity-id" value="{{ activity.activity_id }}">
+    <div id="ai-result" class="ai-bubble" style="display:none"></div>
+    <div id="ai-loading" style="display:none">
+      <span class="spinner"></span> Тренер анализирует...
+    </div>
+    <div id="ai-controls">
+      <button class="btn btn-primary" onclick="getAnalysis()">Получить анализ</button>
+      <button class="btn" onclick="getAnalysis(true)" id="refresh-btn" style="display:none">Обновить</button>
+      <span id="ai-cached-badge" class="badge" style="display:none">из кэша</span>
+    </div>
   </div>
 
-  <div id="ai-controls">
-    <button type="button" onclick="getAnalysis()">Получить анализ</button>
-    <button type="button" id="refresh-btn" style="display:none" onclick="getAnalysis(true)">
-      Обновить анализ
+  <div class="metrics" id="detail-metrics" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px"></div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Пульсовые зоны</span>
+    </div>
+    <div class="zones" id="zones-section"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Пульс и скорость по времени</span>
+      <div class="detail-chart-legend">
+        <div class="detail-chart-legend-item">
+          <span class="detail-chart-legend-line detail-chart-legend-line--heart"></span>
+          <span>Пульс</span>
+        </div>
+        <div class="detail-chart-legend-item">
+          <span class="detail-chart-legend-line detail-chart-legend-line--speed"></span>
+          <span>Скорость км/ч</span>
+        </div>
+        <div class="detail-chart-legend-item">
+          <span class="detail-chart-legend-line detail-chart-legend-line--zone"></span>
+          <span>Зона {{ settings.target_hr_zone_low }}–{{ settings.target_hr_zone_high }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="chart-wrap" style="height:260px">
+      <canvas id="hr-chart"></canvas>
+    </div>
+    <div class="chart-labels chart-labels-detail" id="detail-chart-labels"></div>
+    <button class="btn" id="load-detail-btn" onclick="loadDetail()" style="margin-top:10px;display:none">
+      Загрузить детали
     </button>
-    <span id="ai-cached-badge" class="badge" style="display:none">из кэша</span>
   </div>
-</section>
+
+</div>
 {% else %}
-<section class="panel empty-state">
-  <h1>Пробежка не найдена</h1>
-  <p>Для activity_id <code>{{ activity_id }}</code> записи в базе нет.</p>
-</section>
+<div class="page">
+  <div class="card">
+    <div class="card-title">Пробежка не найдена</div>
+    <div class="card-hint" style="margin-top:8px">Для activity_id {{ activity_id }} записи в базе нет.</div>
+  </div>
+</div>
 {% endif %}
 {% endblock %}
 
 {% block scripts %}
 {% if activity %}
 <script id="activity-data" type="application/json">{{ activity | tojson }}</script>
+<script id="settings-data" type="application/json">{{ settings | tojson }}</script>
 <script>
   document.addEventListener('DOMContentLoaded', () => initDetailPage("{{ activity_id }}"));
 </script>

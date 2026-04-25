@@ -10,9 +10,9 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from portal.db import connect_db, get_activity, init_db, normalize_db_path
+from portal.db import connect_db, get_activity, get_settings, init_db, normalize_db_path
 from portal.infrastructure import config
-from portal.routers import activities, ai, auth, sync
+from portal.routers import activities, ai, auth, settings, sync
 from portal.scheduler import start as start_scheduler
 from portal.scheduler import stop as stop_scheduler
 
@@ -46,6 +46,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.include_router(activities.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
+app.include_router(settings.router, prefix="/api")
 app.include_router(sync.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -61,6 +62,7 @@ async def activity_detail_page(activity_id: str, request: Request) -> HTMLRespon
     conn = await connect_db(normalize_db_path(config.DB_PATH))
     try:
         activity = await get_activity(conn, activity_id)
+        settings_payload = await get_settings(conn)
     finally:
         await conn.close()
 
@@ -75,5 +77,20 @@ async def activity_detail_page(activity_id: str, request: Request) -> HTMLRespon
     return templates.TemplateResponse(
         request,
         "detail.html",
-        {"activity": dict(activity), "activity_id": activity_id},
+        {"activity": dict(activity), "activity_id": activity_id, "settings": settings_payload},
+    )
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request) -> HTMLResponse:
+    conn = await connect_db(normalize_db_path(config.DB_PATH))
+    try:
+        settings_payload = await get_settings(conn)
+    finally:
+        await conn.close()
+
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        {"settings": settings_payload},
     )

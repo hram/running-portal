@@ -96,3 +96,35 @@ async def test_get_recommendation_returns_latest(ai_client):
     payload = response.json()
     assert payload["status"] == "run_easy"
     assert payload["message"] == "Сегодня только лёгкий бег"
+
+
+@pytest.mark.asyncio
+async def test_get_settings_returns_defaults(ai_client):
+    client, _ = ai_client
+    response = await client.get("/api/settings")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["target_hr_zone_low"] == "140"
+    assert payload["target_hr_zone_high"] == "160"
+    assert "Ты персональный тренер" in payload["daily_prompt_template"]
+
+
+@pytest.mark.asyncio
+async def test_post_settings_updates_values(ai_client):
+    client, _ = ai_client
+    response = await client.post(
+        "/api/settings",
+        json={
+            "daily_prompt_template": "daily {hours_since}",
+            "activity_prompt_template": "activity {activity_date}",
+            "target_hr_zone_low": 135,
+            "target_hr_zone_high": 165,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["settings"]["daily_prompt_template"] == "daily {hours_since}"
+    assert payload["settings"]["activity_prompt_template"] == "activity {activity_date}"
+    assert payload["settings"]["target_hr_zone_low"] == "135"
+    assert payload["settings"]["target_hr_zone_high"] == "165"

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Настройки{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Настройки</span>
+      <span class="card-hint">Prompt-шаблоны и целевая зона графика</span>
+    </div>
+
+    <div id="settings-status" class="card-hint" style="margin-bottom:16px"></div>
+
+    <div class="settings-form">
+      <label class="settings-field">
+        <span class="settings-label">Prompt для "Ответ на сегодня"</span>
+        <textarea id="daily-prompt-template" class="settings-textarea">{{ settings.daily_prompt_template }}</textarea>
+      </label>
+
+      <label class="settings-field">
+        <span class="settings-label">Prompt для "AI тренер"</span>
+        <textarea id="activity-prompt-template" class="settings-textarea">{{ settings.activity_prompt_template }}</textarea>
+      </label>
+
+      <div class="settings-zone-grid">
+        <label class="settings-field">
+          <span class="settings-label">Зона: нижняя граница</span>
+          <input id="target-hr-zone-low" class="settings-input" type="number" value="{{ settings.target_hr_zone_low }}">
+        </label>
+
+        <label class="settings-field">
+          <span class="settings-label">Зона: верхняя граница</span>
+          <input id="target-hr-zone-high" class="settings-input" type="number" value="{{ settings.target_hr_zone_high }}">
+        </label>
+      </div>
+
+      <div class="settings-help card-hint">
+        Доступные переменные:
+        <code>{last_date}</code>, <code>{last_distance_km}</code>, <code>{last_avg_hrm}</code>, <code>{last_avg_pace}</code>, <code>{last_train_load}</code>, <code>{last_recover_time}</code>, <code>{hours_since}</code>, <code>{recent_lines}</code>.
+        Для AI тренера:
+        <code>{activity_date}</code>, <code>{activity_distance_km}</code>, <code>{activity_avg_hrm}</code>, <code>{activity_avg_pace}</code>, <code>{activity_avg_cadence}</code>, <code>{activity_avg_stride}</code>, <code>{activity_train_load}</code>, <code>{activity_recover_time}</code>, <code>{activity_zones}</code>, <code>{recent_lines}</code>.
+      </div>
+
+      <div class="settings-actions">
+        <button class="btn btn-primary" onclick="saveSettings()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', () => initSettingsPage());
+</script>
+{% endblock %}

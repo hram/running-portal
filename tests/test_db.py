@@ -9,16 +9,20 @@ import pytest_asyncio
 
 from portal.db import (
     connect_db,
+    DEFAULT_SETTINGS,
     get_activities,
     get_activity,
     get_detail,
     get_ai_analysis,
     get_latest_recommendation,
+    get_setting,
+    get_settings,
     init_db,
     log_sync_finish,
     log_sync_start,
     save_recommendation,
     save_ai_analysis,
+    save_setting,
     upsert_activity,
     upsert_detail,
 )
@@ -55,7 +59,7 @@ async def test_init_db_creates_all_tables():
             )
             names = {row[0] for row in await cursor.fetchall()}
 
-    assert {"activities", "activity_details", "sync_log"}.issubset(names)
+    assert {"activities", "activity_details", "sync_log", "settings"}.issubset(names)
 
 
 @pytest.mark.asyncio
@@ -236,3 +240,18 @@ async def test_save_and_get_recommendation(conn):
 @pytest.mark.asyncio
 async def test_get_latest_recommendation_returns_none_if_empty(conn):
     assert await get_latest_recommendation(conn) is None
+
+
+@pytest.mark.asyncio
+async def test_get_settings_returns_defaults(conn):
+    settings = await get_settings(conn)
+    assert settings["daily_prompt_template"] == DEFAULT_SETTINGS["daily_prompt_template"]
+    assert settings["activity_prompt_template"] == DEFAULT_SETTINGS["activity_prompt_template"]
+    assert settings["target_hr_zone_low"] == "140"
+    assert settings["target_hr_zone_high"] == "160"
+
+
+@pytest.mark.asyncio
+async def test_save_setting_updates_value(conn):
+    await save_setting(conn, "target_hr_zone_low", "135")
+    assert await get_setting(conn, "target_hr_zone_low") == "135"

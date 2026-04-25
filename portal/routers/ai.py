@@ -18,6 +18,7 @@ from portal.db import (
     get_activity,
     get_ai_analysis,
     get_latest_recommendation,
+    get_settings,
     save_ai_analysis,
     save_recommendation,
 )
@@ -31,6 +32,11 @@ router = APIRouter()
 class AnalyzeRequest(BaseModel):
     activity_id: str
     force_refresh: bool = False
+
+
+class _SafeDict(dict):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
 
 
 @asynccontextmanager
@@ -84,7 +90,8 @@ async def _analysis_stream(activity_id: str):
             yield f"data: {json.dumps({'error': 'Activity not found'}, ensure_ascii=False)}\n\n"
             return
         recent = await get_activities(conn, limit=10, offset=0)
-        prompt = build_prompt(activity, recent)
+        settings = await get_settings(conn)
+        prompt = build_prompt(activity, recent, settings)
 
     full_text: list[str] = []
 
@@ -151,7 +158,12 @@ async def _analysis_stream(activity_id: str):
         yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
 
 
-def build_prompt(activity: dict, recent: list[dict]) -> str:
+def _render_template(template: str, values: dict[str, object]) -> str:
+    normalized = {key: ("—" if value is None else str(value)) for key, value in values.items()}
+    return template.format_map(_SafeDict(normalized))
+
+
+def build_prompt(activity: dict, recent: list[dict], settings: dict[str, str]) -> str:
     def fmt_pace(seconds):
         if not seconds:
             return "—"
@@ -187,28 +199,24 @@ def build_prompt(activity: dict, recent: list[dict]) -> str:
             for run in recent
         ]
     )
-
-    return f"""Ты персональный тренер по бегу. Говори коротко и по-русски, как живой тренер — без воды. Пиши связным текстом, 3–5 предложений.
-
-Бегун восстанавливается после травмы ступней и голеностопа. Цель: войти в ритм, бегать регулярно. Недавно купил новые кроссовки 361 KAIROS 2 (стек 34мм, перепад 8мм) — первые недели в них.
-
-Пробежка {activity['date'][:10]}:
-- Дистанция: {activity['distance_km']} км
-- Пульс: {activity['avg_hrm']} уд/мин
-- Темп: {fmt_pace(activity['avg_pace'])}
-- Каденс: {activity['avg_cadence']} ш/мин
-- Длина шага: {activity['avg_stride']} см
-- Нагрузка: {activity['train_load']}
-- Восстановление: {activity['recover_time']} ч
-- Пульсовые зоны: {fmt_zones(activity)}
-
-Последние 10 пробежек:
-{recent_lines}
-
-Дай короткий анализ этой пробежки и одну конкретную рекомендацию на следующую тренировку."""
+    return _render_template(
+        settings["activity_prompt_template"],
+        {
+            "activity_date": activity["date"][:10],
+            "activity_distance_km": activity.get("distance_km"),
+            "activity_avg_hrm": activity.get("avg_hrm"),
+            "activity_avg_pace": fmt_pace(activity.get("avg_pace")),
+            "activity_avg_cadence": activity.get("avg_cadence"),
+            "activity_avg_stride": activity.get("avg_stride"),
+            "activity_train_load": activity.get("train_load"),
+            "activity_recover_time": activity.get("recover_time"),
+            "activity_zones": fmt_zones(activity),
+            "recent_lines": recent_lines,
+        },
+    )
 
 
-def build_daily_prompt(activities: list[dict]) -> str:
+def build_daily_prompt(activities: list[dict], settings: dict[str, str]) -> str:
     if not activities:
         return ""
 
@@ -229,40 +237,30 @@ def build_daily_prompt(activities: list[dict]) -> str:
             for run in activities[:7]
         ]
     )
-
-    return f"""Ты персональный тренер по бегу. Отвечай строго в формате JSON.
-
-Бегун восстанавливается после травмы ступней. Цель: войти в ритм, бегать регулярно.
-Новые кроссовки 361 KAIROS 2 — первые недели в них.
-
-Последняя пробежка: {last['date'][:10]}, {last['distance_km']}км,
-пульс {last['avg_hrm']} уд/мин, темп {fmt_pace(last['avg_pace'])},
-нагрузка {last['train_load']}, восстановление {last['recover_time']}ч.
-С последней пробежки прошло: {hours_since} часов.
-
-Последние 7 пробежек:
-{recent_lines}
-
-Ответь ТОЛЬКО валидным JSON без markdown, без пояснений:
-{{
-  "status": "run" | "run_easy" | "rest",
-  "message": "два предложения — анализ ситуации и конкретная рекомендация на сегодня"
-}}
-
-Критерии выбора status:
-- "rest": recover_time последней пробежки ещё не истёк (часов прошло < recover_time) ИЛИ пульс был > 185
-- "run_easy": пульс был 170–185 ИЛИ нагрузка > 200 ИЛИ recover_time почти истёк
-- "run": всё в норме, можно бежать в обычном режиме"""
+    return _render_template(
+        settings["daily_prompt_template"],
+        {
+            "last_date": last["date"][:10],
+            "last_distance_km": last.get("distance_km"),
+            "last_avg_hrm": last.get("avg_hrm"),
+            "last_avg_pace": fmt_pace(last.get("avg_pace")),
+            "last_train_load": last.get("train_load"),
+            "last_recover_time": last.get("recover_time"),
+            "hours_since": hours_since,
+            "recent_lines": recent_lines,
+        },
+    )
 
 
 async def generate_daily_recommendation(sync_id: int | None = None) -> dict[str, str]:
     async with get_db() as conn:
         activities = await get_activities(conn, limit=10, offset=0)
+        settings = await get_settings(conn)
 
     if not activities:
         return {"status": "run", "message": "Нет данных для анализа. Начни бегать!"}
 
-    prompt = build_daily_prompt(activities)
+    prompt = build_daily_prompt(activities, settings)
 
     try:
         process = subprocess.Popen(

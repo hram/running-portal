@@ -69,7 +69,59 @@ CREATE TABLE IF NOT EXISTS daily_recommendation (
     sync_id      INTEGER,
     FOREIGN KEY (sync_id) REFERENCES sync_log(id)
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
 """
+
+DEFAULT_SETTINGS: dict[str, str] = {
+    "daily_prompt_template": """Ты персональный тренер по бегу. Отвечай строго в формате JSON.
+
+Бегун восстанавливается после травмы ступней. Цель: войти в ритм, бегать регулярно.
+Новые кроссовки 361 KAIROS 2 — первые недели в них.
+
+Последняя пробежка: {last_date}, {last_distance_km}км,
+пульс {last_avg_hrm} уд/мин, темп {last_avg_pace},
+нагрузка {last_train_load}, восстановление {last_recover_time}ч.
+С последней пробежки прошло: {hours_since} часов.
+
+Последние 7 пробежек:
+{recent_lines}
+
+Ответь ТОЛЬКО валидным JSON без markdown, без пояснений:
+{{
+  "status": "run" | "run_easy" | "rest",
+  "message": "два предложения — анализ ситуации и конкретная рекомендация на сегодня"
+}}
+
+Критерии выбора status:
+- "rest": recover_time последней пробежки ещё не истёк (часов прошло < recover_time) ИЛИ пульс был > 185
+- "run_easy": пульс был 170–185 ИЛИ нагрузка > 200 ИЛИ recover_time почти истёк
+- "run": всё в норме, можно бежать в обычном режиме""",
+    "activity_prompt_template": """Ты персональный тренер по бегу. Говори коротко и по-русски, как живой тренер — без воды. Пиши связным текстом, 3–5 предложений.
+
+Бегун восстанавливается после травмы ступней и голеностопа. Цель: войти в ритм, бегать регулярно. Недавно купил новые кроссовки 361 KAIROS 2 (стек 34мм, перепад 8мм) — первые недели в них.
+
+Пробежка {activity_date}:
+- Дистанция: {activity_distance_km} км
+- Пульс: {activity_avg_hrm} уд/мин
+- Темп: {activity_avg_pace}
+- Каденс: {activity_avg_cadence} ш/мин
+- Длина шага: {activity_avg_stride} см
+- Нагрузка: {activity_train_load}
+- Восстановление: {activity_recover_time} ч
+- Пульсовые зоны: {activity_zones}
+
+Последние 10 пробежек:
+{recent_lines}
+
+Дай короткий анализ этой пробежки и одну конкретную рекомендацию на следующую тренировку.""",
+    "target_hr_zone_low": "140",
+    "target_hr_zone_high": "160",
+}
 
 ACTIVITY_COLUMNS = (
     "activity_id",
@@ -124,6 +176,14 @@ async def init_db(db_path: str) -> None:
     normalized_path = normalize_db_path(db_path)
     async with aiosqlite.connect(normalized_path) as conn:
         await conn.executescript(SCHEMA)
+        for key, value in DEFAULT_SETTINGS.items():
+            await conn.execute(
+                """
+                INSERT OR IGNORE INTO settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                """,
+                (key, value, utc_now_iso()),
+            )
         await conn.commit()
 
 
@@ -297,5 +357,34 @@ async def save_recommendation(
         VALUES (?, ?, ?, ?, ?)
         """,
         (now[:10], status, message, now, sync_id),
+    )
+    await conn.commit()
+
+
+async def get_setting(conn: aiosqlite.Connection, key: str) -> str | None:
+    cursor = await conn.execute("SELECT value FROM settings WHERE key = ?", (key,))
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    return str(row["value"])
+
+
+async def get_settings(conn: aiosqlite.Connection) -> dict[str, str]:
+    cursor = await conn.execute("SELECT key, value FROM settings ORDER BY key")
+    rows = await cursor.fetchall()
+    settings = {row["key"]: str(row["value"]) for row in rows}
+    return {**DEFAULT_SETTINGS, **settings}
+
+
+async def save_setting(conn: aiosqlite.Connection, key: str, value: str) -> None:
+    await conn.execute(
+        """
+        INSERT INTO settings (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at
+        """,
+        (key, value, utc_now_iso()),
     )
     await conn.commit()

@@ -1,0 +1,190 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f2f4f0;color:#22302a;font-size:14px;line-height:1.5}
+:root{
+  --bg:#f2f4f0;--bg-card:#fff;--bg-hover:#fafcfa;
+  --accent:#3a5040;--accent-light:#e8f0ea;
+  --text:#22302a;--text2:#607068;--text3:#90a89a;--text4:#a8c0b0;
+  --border:#d8e0da;--border-card:#ccd8d0;--border-inner:#e8f0ea;
+  --radius:6px;--radius-lg:8px;
+}
+nav{background:#fff;border-bottom:1px solid var(--border);padding:0 24px;height:46px;display:flex;align-items:center;justify-content:space-between}
+.nav-logo{font-size:10px;letter-spacing:.16em;color:var(--text);text-transform:uppercase;font-weight:500}
+.nav-btn{font-size:11px;color:#fff;background:var(--accent);border:none;padding:5px 14px;border-radius:var(--radius);cursor:pointer}
+.page{max-width:700px;margin:0 auto;padding:24px 20px}
+.breadcrumb{margin-bottom:18px;display:flex;align-items:center;gap:6px}
+.breadcrumb a{font-size:12px;color:var(--text3)}
+.breadcrumb-sep{font-size:12px;color:var(--text3)}
+.breadcrumb-title{font-size:13px;font-weight:500;color:var(--text)}
+.breadcrumb-dist{font-size:13px;color:var(--accent);margin-left:4px}
+
+.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:16px}
+.metric{background:var(--bg-card);border-radius:var(--radius-lg);border:0.5px solid var(--border-card);padding:12px 14px}
+.metric-label{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.metric-value{font-size:20px;font-weight:500;color:var(--text);line-height:1.1}
+.metric-sub{font-size:9px;color:var(--text4);margin-top:3px}
+
+.card{background:var(--bg-card);border-radius:var(--radius-lg);border:0.5px solid var(--border-card);padding:16px 20px;margin-bottom:16px}
+.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.card-title{font-size:13px;font-weight:500;color:var(--text)}
+.card-hint{font-size:10px;color:var(--text3)}
+
+.zones{display:flex;flex-direction:column;gap:8px}
+.zone-row{display:flex;align-items:center;gap:10px}
+.zone-name{font-size:11px;color:var(--text2);min-width:100px}
+.zone-bar-wrap{flex:1;height:8px;background:var(--bg);border-radius:4px;overflow:hidden}
+.zone-bar{height:100%;border-radius:4px}
+.zone-pct{font-size:11px;color:var(--text3);min-width:32px;text-align:right}
+
+.chart-wrap{position:relative;width:100%;height:180px;margin-bottom:8px}
+.chart-legend{display:flex;gap:16px;font-size:11px;color:var(--text3);margin-bottom:10px}
+.legend-item{display:flex;align-items:center;gap:5px}
+.legend-dot{width:10px;height:3px;border-radius:2px}
+
+.btn{font-size:12px;padding:7px 16px;border-radius:var(--radius);border:0.5px solid var(--border-card);background:transparent;color:var(--text);cursor:pointer}
+.btn:hover{background:var(--bg)}
+.btn-primary{background:var(--accent);color:#fff;border-color:transparent}
+.btn-primary:hover{opacity:.85;background:var(--accent)}
+
+.ai-bubble{background:var(--bg);border-radius:var(--radius);padding:14px 16px;font-size:13px;line-height:1.7;color:var(--text);white-space:pre-wrap;border-left:3px solid var(--accent);margin-bottom:12px}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;background:var(--accent-light);color:var(--accent);border:0.5px solid var(--border-card);margin-left:8px;vertical-align:middle}
+.ai-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+</style>
+
+<nav>
+  <span class="nav-logo">Running Portal</span>
+  <button class="nav-btn">↻ Синхронизировать</button>
+</nav>
+
+<div class="page">
+
+  <div class="breadcrumb">
+    <a href="#">← Назад</a>
+    <span class="breadcrumb-sep">·</span>
+    <span class="breadcrumb-title">Пробежка 24.04.2026</span>
+    <span class="breadcrumb-dist">3.17 км</span>
+  </div>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="metric-label">Пульс</div>
+      <div class="metric-value">149</div>
+      <div class="metric-sub">уд/мин · средний</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Темп</div>
+      <div class="metric-value">6:36</div>
+      <div class="metric-sub">мин/км</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Каденс</div>
+      <div class="metric-value">157</div>
+      <div class="metric-sub">шаг/мин</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Длина шага</div>
+      <div class="metric-value">96</div>
+      <div class="metric-sub">см</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Нагрузка</div>
+      <div class="metric-value">64</div>
+      <div class="metric-sub">train load</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Восстановление</div>
+      <div class="metric-value">54</div>
+      <div class="metric-sub">часов</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Пульсовые зоны</span>
+      <span class="card-hint">распределение времени</span>
+    </div>
+    <div class="zones">
+      <div class="zone-row">
+        <span class="zone-name">Жиросжигание</span>
+        <div class="zone-bar-wrap"><div class="zone-bar" style="width:2%;background:#85b7eb"></div></div>
+        <span class="zone-pct">2%</span>
+      </div>
+      <div class="zone-row">
+        <span class="zone-name">Аэробная</span>
+        <div class="zone-bar-wrap"><div class="zone-bar" style="width:25%;background:#3a5040"></div></div>
+        <span class="zone-pct">25%</span>
+      </div>
+      <div class="zone-row">
+        <span class="zone-name">Анаэробная</span>
+        <div class="zone-bar-wrap"><div class="zone-bar" style="width:44%;background:#c8a020"></div></div>
+        <span class="zone-pct">44%</span>
+      </div>
+      <div class="zone-row">
+        <span class="zone-name">Экстремальная</span>
+        <div class="zone-bar-wrap"><div class="zone-bar" style="width:29%;background:#a04040"></div></div>
+        <span class="zone-pct">29%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Пульс и скорость по времени</span>
+      <span class="card-hint">посекундные данные</span>
+    </div>
+    <div class="chart-legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#3a5040;height:2px"></div> Пульс</div>
+      <div class="legend-item"><div class="legend-dot" style="background:rgba(58,80,64,0.4);height:2px;border-top:1px dashed rgba(58,80,64,0.4)"></div> Скорость км/ч</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#c8a020;height:2px"></div> Зона 140–160</div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="hr-chart"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">AI тренер</span>
+      <span class="card-hint">Персональный анализ</span>
+    </div>
+    <div class="ai-bubble">Хорошая пробежка — пульс 149 это именно тот диапазон, к которому мы стремились. Тело адаптируется к новым кроссовкам: каденс 157 немного ниже нормы, длина шага короче чем обычно — это нормально на первых неделях. Следующая тренировка: та же дистанция, тот же темп, но попробуй удержать каденс ближе к 160 — короткие частые шаги снимут нагрузку со ступней.</div>
+    <div class="ai-controls">
+      <button class="btn btn-primary">Получить анализ</button>
+      <button class="btn">Обновить</button>
+      <span class="badge">из кэша</span>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const HRS = [115,125,126,135,141,142,148,146,143,148,129,137,135,137,138,135,139,141,137,139,144,133,140,144,152,152,149,150,156,158,157,154,160,157,156,146,146,148,151,154,156,165,166,163,169,150,166,164,157,154,160,160,152,149,170,165,165,161,151,144,149,136,143,154,130,151,163,151,139,135,155,149,145,139,147,153,151,145,143,153,156,155,149,153,159,150,163,154,161,163,150,135,134,149,141,117,121,148,132,139,130,130,124,127,146,150,151,161,166,163,171,177,181,168,175,168,130,147,135,134,134,135];
+const SPD = [6.1,6.1,6.8,8.6,9.4,10.4,10.1,9.4,8.3,8.3,8.6,9.4,9.0,9.0,9.4,9.7,9.4,9.7,9.7,9.7,10.1,10.1,10.1,10.1,9.0,10.4,10.8,9.7,9.7,9.7,9.7,9.4,9.7,9.4,9.7,8.6,9.0,9.7,10.8,9.7,9.4,9.4,9.4,8.3,8.3,8.3,8.3,9.0,7.6,8.3,8.6,8.3,7.9,8.3,8.3,8.6,7.9,7.2,7.2,6.8,5.8,7.9,7.9,7.2,7.6,7.9,8.3,8.6,7.9,7.9,7.9,8.3,9.0,8.3,8.3,9.0,9.0,8.3,8.3,8.3,8.3,9.0,8.3,8.3,8.3,6.8,6.5,7.9,8.3,7.2,7.6,8.6,7.9,7.9,8.6,8.6,9.0,9.0,7.9,7.9,8.6,10.1,9.0,8.3,7.6,8.6,8.3,8.3,8.3,8.3,8.3,8.6,7.6,8.3,8.6,8.6,8.6,8.3,7.9,8.3,7.6,7.6];
+const labels = HRS.map((_,i)=>i%12===0?Math.floor(i*10/60)+"м":"");
+
+new Chart(document.getElementById('hr-chart'),{
+  type:'line',
+  data:{
+    labels,
+    datasets:[
+      {label:'Пульс',data:HRS,borderColor:'#3a5040',backgroundColor:'rgba(58,80,64,0.05)',tension:0.3,pointRadius:0,borderWidth:2,yAxisID:'y1',fill:false},
+      {label:'Скорость',data:SPD,borderColor:'rgba(58,80,64,0.35)',tension:0.3,pointRadius:0,borderWidth:1.5,yAxisID:'y2',fill:false,borderDash:[4,2]}
+    ]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{
+      legend:{display:false},
+      annotation:{},
+      tooltip:{callbacks:{label:c=>c.datasetIndex===0?'Пульс: '+c.parsed.y+' уд/мин':'Скорость: '+c.parsed.y+' км/ч'}}
+    },
+    scales:{
+      x:{ticks:{autoSkip:false,maxRotation:0,font:{size:9},color:'#a8c0b0',callback:(v,i)=>labels[i]},grid:{display:false}},
+      y1:{position:'left',min:100,max:200,ticks:{font:{size:9},color:'#90a89a'},grid:{color:'rgba(204,216,208,0.4)'},title:{display:true,text:'уд/мин',font:{size:9},color:'#90a89a'}},
+      y2:{position:'right',min:0,max:16,ticks:{font:{size:9},color:'#90a89a'},grid:{display:false},title:{display:true,text:'км/ч',font:{size:9},color:'#90a89a'}}
+    }
+  }
+});
+</script>
