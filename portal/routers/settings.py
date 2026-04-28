@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from portal.db import connect_db, get_settings, save_setting
-from portal.sync import _resolve_db_path
+from portal.infrastructure import config
 
 
 router = APIRouter()
@@ -22,6 +24,10 @@ class SettingsUpdateRequest(BaseModel):
     activity_prompt_template: str
     target_hr_zone_low: int
     target_hr_zone_high: int
+
+
+def _resolve_db_path() -> str:
+    return str(Path(config.DB_PATH).expanduser())
 
 
 @router.get("/settings")

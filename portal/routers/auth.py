@@ -5,11 +5,6 @@ import asyncio
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from mi_fitness_sync.exceptions import CaptchaRequiredError, NotificationRequiredError, Step2RequiredError
-from mi_fitness_sync.auth.store import load_state, save_state
-
-from portal.sync import _resolve_state_path, get_auth_client
-
 
 router = APIRouter()
 
@@ -17,6 +12,30 @@ router = APIRouter()
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+def _resolve_state_path() -> str:
+    from portal.sync import _resolve_state_path as resolve_state_path
+
+    return resolve_state_path()
+
+
+def get_auth_client():
+    from portal.sync import get_auth_client as create_auth_client
+
+    return create_auth_client()
+
+
+def load_state(path: str):
+    from mi_fitness_sync.auth.store import load_state as load_auth_state
+
+    return load_auth_state(path)
+
+
+def save_state(state, path: str) -> None:
+    from mi_fitness_sync.auth.store import save_state as save_auth_state
+
+    save_auth_state(state, path)
 
 
 @router.post("/auth/login")
@@ -49,6 +68,8 @@ async def auth_status() -> dict[str, object]:
 
 
 def format_auth_error(exc: Exception) -> dict[str, object]:
+    from mi_fitness_sync.exceptions import CaptchaRequiredError, NotificationRequiredError, Step2RequiredError
+
     if isinstance(exc, CaptchaRequiredError):
         return {
             "error": str(exc),

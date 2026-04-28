@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -158,6 +159,13 @@ def normalize_db_path(db_path: str) -> str:
     return str(Path(db_path).expanduser())
 
 
+async def _configure_fast_test_sqlite(conn: aiosqlite.Connection) -> None:
+    if os.getenv("RUNNING_PORTAL_TEST_FAST_SQLITE") != "1":
+        return
+    await conn.execute("PRAGMA journal_mode = MEMORY")
+    await conn.execute("PRAGMA synchronous = OFF")
+
+
 def _serialize_json(value: Any) -> str | None:
     if value is None:
         return None
@@ -175,6 +183,7 @@ def _row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
 async def init_db(db_path: str) -> None:
     normalized_path = normalize_db_path(db_path)
     async with aiosqlite.connect(normalized_path) as conn:
+        await _configure_fast_test_sqlite(conn)
         await conn.executescript(SCHEMA)
         for key, value in DEFAULT_SETTINGS.items():
             await conn.execute(
@@ -190,6 +199,7 @@ async def init_db(db_path: str) -> None:
 async def connect_db(db_path: str) -> aiosqlite.Connection:
     conn = await aiosqlite.connect(normalize_db_path(db_path))
     conn.row_factory = aiosqlite.Row
+    await _configure_fast_test_sqlite(conn)
     await conn.execute("PRAGMA foreign_keys = ON")
     return conn
 

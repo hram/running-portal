@@ -13,8 +13,6 @@ from fastapi.templating import Jinja2Templates
 from portal.db import connect_db, get_activity, get_settings, init_db, normalize_db_path
 from portal.infrastructure import config
 from portal.routers import activities, ai, auth, settings, sync
-from portal.scheduler import start as start_scheduler
-from portal.scheduler import stop as stop_scheduler
 
 
 load_dotenv()
@@ -30,6 +28,9 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    from portal.scheduler import start as start_scheduler
+    from portal.scheduler import stop as stop_scheduler
+
     db_path = normalize_db_path(config.DB_PATH)
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     await init_db(db_path)

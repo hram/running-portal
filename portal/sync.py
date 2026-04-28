@@ -5,14 +5,9 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from mi_fitness_sync.activity.client import MiFitnessActivitiesClient
-from mi_fitness_sync.auth.client import MiFitnessAuthClient
-from mi_fitness_sync.auth.state import AuthState
-from mi_fitness_sync.auth.store import DEFAULT_STATE_PATH, delete_state, load_state, save_state
 from mi_fitness_sync.exceptions import XiaomiApiError
-from mi_fitness_sync.fds.cache import DEFAULT_CACHE_DIR
 
 from portal.db import (
     connect_db,
@@ -24,6 +19,12 @@ from portal.db import (
     upsert_detail,
 )
 from portal.infrastructure import config
+
+
+if TYPE_CHECKING:
+    from mi_fitness_sync.activity.client import MiFitnessActivitiesClient
+    from mi_fitness_sync.auth.client import MiFitnessAuthClient
+    from mi_fitness_sync.auth.state import AuthState
 
 
 logger = logging.getLogger(__name__)
@@ -39,10 +40,14 @@ def _resolve_db_path() -> str:
 
 
 def _resolve_state_path() -> str:
+    from mi_fitness_sync.auth.store import DEFAULT_STATE_PATH
+
     return str(Path(config.MI_FITNESS_STATE_PATH or str(DEFAULT_STATE_PATH)).expanduser())
 
 
 def _resolve_cache_dir() -> str:
+    from mi_fitness_sync.fds.cache import DEFAULT_CACHE_DIR
+
     return str(Path(config.MI_FITNESS_CACHE_DIR or str(DEFAULT_CACHE_DIR)).expanduser())
 
 
@@ -143,10 +148,15 @@ def _parse_db_datetime(value: str | None) -> datetime | None:
 
 
 def get_auth_client() -> MiFitnessAuthClient:
+    from mi_fitness_sync.auth.client import MiFitnessAuthClient
+
     return MiFitnessAuthClient()
 
 
 def get_activity_client(auth_state: AuthState | None = None) -> MiFitnessActivitiesClient:
+    from mi_fitness_sync.activity.client import MiFitnessActivitiesClient
+    from mi_fitness_sync.auth.store import load_state
+
     auth_state = auth_state or load_state(_resolve_state_path())
     if auth_state is None:
         raise RuntimeError("Mi Fitness auth state not found. Login is required before sync.")
@@ -158,6 +168,8 @@ def get_activity_client(auth_state: AuthState | None = None) -> MiFitnessActivit
 
 
 def refresh_auth_state() -> AuthState:
+    from mi_fitness_sync.auth.store import load_state, save_state
+
     auth_state = load_state(_resolve_state_path())
     if auth_state is None:
         raise RuntimeError("Mi Fitness auth state not found. Login is required before sync.")
@@ -188,6 +200,8 @@ def refresh_auth_state() -> AuthState:
 
 
 def validate_auth_state(auth_state: AuthState) -> None:
+    from mi_fitness_sync.activity.client import MiFitnessActivitiesClient
+
     client = MiFitnessActivitiesClient(
         auth_state,
         country_code=_resolve_country_code(),
@@ -246,6 +260,18 @@ async def get_activity_detail_with_auth_retry(activity_id: str) -> Any:
         return await asyncio.to_thread(refreshed_client.get_activity_detail, activity_id)
 
 
+async def _load_and_store_detail(conn, activity_id: str) -> dict[str, Any]:
+    detail = await get_activity_detail_with_auth_retry(activity_id)
+    detail_dict = detail.to_json_dict()
+    stored_detail = {
+        "samples": detail_dict.get("samples") or [],
+        "track_points": detail_dict.get("track_points") or [],
+        "raw_detail": detail_dict,
+    }
+    await upsert_detail(conn, activity_id, stored_detail)
+    return stored_detail
+
+
 async def get_last_sync_date(conn) -> datetime | None:
     cursor = await conn.execute("SELECT date FROM activities ORDER BY date DESC LIMIT 1")
     row = await cursor.fetchone()
@@ -284,27 +310,53 @@ async def sync_activities(since: datetime | None = None) -> dict[str, Any]:
 
         added = 0
         updated = 0
+        added_activity_ids: list[str] = []
         for activity in filtered:
             existing = await get_activity(conn, activity.activity_id)
             if existing is None:
                 added += 1
+                added_activity_ids.append(activity.activity_id)
             else:
                 updated += 1
             await upsert_activity(conn, _serialize_activity(activity))
 
+        details_loaded = 0
+        if len(added_activity_ids) == 1:
+            activity_id = added_activity_ids[0]
+            try:
+                await _load_and_store_detail(conn, activity_id)
+                details_loaded = 1
+            except XiaomiApiError as exc:
+                if exc.code == 401:
+                    from mi_fitness_sync.auth.store import delete_state
+
+                    delete_state(_resolve_state_path())
+                logger.exception("Failed to auto-fetch detail for new activity %s", activity_id)
+            except Exception:
+                logger.exception("Failed to auto-fetch detail for new activity %s", activity_id)
+
         await log_sync_finish(conn, sync_id, added=added, updated=updated, error=None)
-        return {"added": added, "updated": updated, "total": len(filtered), "error": None, "sync_id": sync_id}
+        return {
+            "added": added,
+            "updated": updated,
+            "total": len(filtered),
+            "details_loaded": details_loaded,
+            "error": None,
+            "sync_id": sync_id,
+        }
     except XiaomiApiError as exc:
         logger.exception("Sync failed")
         error = AUTH_EXPIRED_MESSAGE if exc.code == 401 else str(exc)
         if exc.code == 401:
+            from mi_fitness_sync.auth.store import delete_state
+
             delete_state(_resolve_state_path())
         await log_sync_finish(conn, sync_id, added=0, updated=0, error=error)
-        return {"added": 0, "updated": 0, "total": 0, "error": error, "sync_id": sync_id}
+        return {"added": 0, "updated": 0, "total": 0, "details_loaded": 0, "error": error, "sync_id": sync_id}
     except Exception as exc:
         logger.exception("Sync failed")
         await log_sync_finish(conn, sync_id, added=0, updated=0, error=str(exc))
-        return {"added": 0, "updated": 0, "total": 0, "error": str(exc), "sync_id": sync_id}
+        return {"added": 0, "updated": 0, "total": 0, "details_loaded": 0, "error": str(exc), "sync_id": sync_id}
     finally:
         await conn.close()
 
@@ -318,17 +370,11 @@ async def fetch_detail(activity_id: str) -> dict[str, Any] | None:
             if cached_dt is not None and (_utc_now() - cached_dt) < timedelta(days=DETAIL_CACHE_TTL_DAYS):
                 return _deserialize_detail_row(cached)
 
-        detail = await get_activity_detail_with_auth_retry(activity_id)
-        detail_dict = detail.to_json_dict()
-        stored_detail = {
-            "samples": detail_dict.get("samples") or [],
-            "track_points": detail_dict.get("track_points") or [],
-            "raw_detail": detail_dict,
-        }
-        await upsert_detail(conn, activity_id, stored_detail)
-        return stored_detail
+        return await _load_and_store_detail(conn, activity_id)
     except XiaomiApiError as exc:
         if exc.code == 401:
+            from mi_fitness_sync.auth.store import delete_state
+
             delete_state(_resolve_state_path())
         logger.exception("Failed to fetch detail for %s", activity_id)
         return None

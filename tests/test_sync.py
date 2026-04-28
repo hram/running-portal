@@ -109,8 +109,18 @@ async def test_sync_activities_returns_correct_counts(temp_db):
     assert result["added"] == 1
     assert result["updated"] == 1
     assert result["total"] == 2
+    assert result["details_loaded"] == 1
     assert result["error"] is None
     assert isinstance(result["sync_id"], int)
+    assert client.detail_calls == 1
+
+    conn = await connect_db(str(temp_db))
+    try:
+        detail = await get_detail(conn, "new-run")
+    finally:
+        await conn.close()
+
+    assert detail is not None
 
 
 @pytest.mark.asyncio
@@ -146,7 +156,7 @@ async def test_sync_activities_refreshes_auth_state_on_401(temp_db):
     )
 
     with (
-        patch("portal.sync.get_activity_client", side_effect=[first_client, refreshed_client]),
+        patch("portal.sync.get_activity_client", side_effect=[first_client, refreshed_client, refreshed_client]),
         patch("portal.sync.refresh_auth_state", return_value=object()) as refresh_mock,
     ):
         result = await sync_activities()
@@ -154,8 +164,27 @@ async def test_sync_activities_refreshes_auth_state_on_401(temp_db):
     assert result["added"] == 1
     assert result["updated"] == 0
     assert result["total"] == 1
+    assert result["details_loaded"] == 1
     assert result["error"] is None
     refresh_mock.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_sync_activities_skips_auto_detail_when_multiple_activities_added(temp_db):
+    await init_db(str(temp_db))
+    client = FakeActivityClient(
+        activities=[
+            make_activity(activity_id="new-run-1", start_time=1713810000),
+            make_activity(activity_id="new-run-2", start_time=1713820000),
+        ]
+    )
+
+    with patch("portal.sync.get_activity_client", return_value=client):
+        result = await sync_activities()
+
+    assert result["added"] == 2
+    assert result["details_loaded"] == 0
+    assert client.detail_calls == 0
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ import re
 import subprocess
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import APIRouter, HTTPException
@@ -23,7 +24,6 @@ from portal.db import (
     save_recommendation,
 )
 from portal.infrastructure import config
-from portal.sync import _resolve_db_path
 
 
 router = APIRouter()
@@ -37,6 +37,10 @@ class AnalyzeRequest(BaseModel):
 class _SafeDict(dict):
     def __missing__(self, key: str) -> str:
         return "{" + key + "}"
+
+
+def _resolve_db_path() -> str:
+    return str(Path(config.DB_PATH).expanduser())
 
 
 @asynccontextmanager

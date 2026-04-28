@@ -9,3 +9,4 @@ dist/
 build/
 *.sqlite3
 *.db
+/.idea/

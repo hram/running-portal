@@ -1,15 +1,31 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from fastapi import APIRouter
 
 from portal.db import connect_db, get_recent_sync_logs
-from portal.routers.ai import generate_daily_recommendation
-from portal.sync import _resolve_db_path, sync_activities
+from portal.infrastructure import config
 
 
 router = APIRouter()
+
+
+def _resolve_db_path() -> str:
+    return str(Path(config.DB_PATH).expanduser())
+
+
+async def sync_activities() -> dict[str, object]:
+    from portal.sync import sync_activities as run_sync_activities
+
+    return await run_sync_activities()
+
+
+async def generate_daily_recommendation(sync_id: int | None = None) -> dict[str, str]:
+    from portal.routers.ai import generate_daily_recommendation as generate
+
+    return await generate(sync_id=sync_id)
 
 
 @router.post("/sync")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -15,10 +16,20 @@ from portal.db import (
     get_activity_count,
     get_detail,
 )
-from portal.sync import _resolve_db_path, fetch_detail
+from portal.infrastructure import config
 
 
 router = APIRouter()
+
+
+def _resolve_db_path() -> str:
+    return str(Path(config.DB_PATH).expanduser())
+
+
+async def fetch_detail(activity_id: str):
+    from portal.sync import fetch_detail as fetch_activity_detail
+
+    return await fetch_activity_detail(activity_id)
 
 
 def _decode_json(value: Any) -> Any:
