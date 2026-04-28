@@ -147,7 +147,7 @@ class ActivityTransport:
         )
 
         if response.status_code == 401:
-            raise XiaomiApiError(f"{request_label} was rejected with 401 auth err.")
+            raise XiaomiApiError(f"{request_label} was rejected with 401 auth err.", code=401)
         if not response.ok:
             raise XiaomiApiError(
                 f"{request_label} failed with HTTP {response.status_code}.",

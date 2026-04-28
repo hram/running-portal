@@ -4,15 +4,15 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from portal.db import connect_db, get_detail, init_db, upsert_activity, upsert_detail
 from portal.infrastructure import config
-from portal.sync import fetch_detail, get_last_sync_date, sync_activities
+from portal.sync import AUTH_EXPIRED_MESSAGE, fetch_detail, get_last_sync_date, sync_activities
 from mi_fitness_sync.activity.models import Activity
+from mi_fitness_sync.exceptions import XiaomiApiError
 
 
 def make_activity(
@@ -135,6 +135,55 @@ async def test_sync_activities_handles_error(temp_db):
 
     assert row is not None
     assert row["error"] == "boom"
+
+
+@pytest.mark.asyncio
+async def test_sync_activities_refreshes_auth_state_on_401(temp_db):
+    await init_db(str(temp_db))
+    first_client = FakeActivityClient(error=XiaomiApiError("auth rejected", code=401))
+    refreshed_client = FakeActivityClient(
+        activities=[make_activity(activity_id="new-run", start_time=1713810000)]
+    )
+
+    with (
+        patch("portal.sync.get_activity_client", side_effect=[first_client, refreshed_client]),
+        patch("portal.sync.refresh_auth_state", return_value=object()) as refresh_mock,
+    ):
+        result = await sync_activities()
+
+    assert result["added"] == 1
+    assert result["updated"] == 0
+    assert result["total"] == 1
+    assert result["error"] is None
+    refresh_mock.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_sync_activities_clears_auth_state_when_refresh_fails(temp_db, monkeypatch):
+    await init_db(str(temp_db))
+    state_path = temp_db.parent / "auth.json"
+    state_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(config, "MI_FITNESS_STATE_PATH", str(state_path))
+    client = FakeActivityClient(error=XiaomiApiError("auth rejected", code=401))
+
+    with (
+        patch("portal.sync.get_activity_client", return_value=client),
+        patch("portal.sync.refresh_auth_state", side_effect=XiaomiApiError("refresh failed", code=401)),
+    ):
+        result = await sync_activities()
+
+    assert result["error"] == AUTH_EXPIRED_MESSAGE
+    assert not state_path.exists()
+
+    conn = await connect_db(str(temp_db))
+    try:
+        cursor = await conn.execute("SELECT error FROM sync_log ORDER BY id DESC LIMIT 1")
+        row = await cursor.fetchone()
+    finally:
+        await conn.close()
+
+    assert row is not None
+    assert row["error"] == AUTH_EXPIRED_MESSAGE
 
 
 @pytest.mark.asyncio

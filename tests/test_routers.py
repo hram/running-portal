@@ -7,6 +7,9 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from mi_fitness_sync.auth.state import AuthState
+from mi_fitness_sync.auth.store import save_state
+from mi_fitness_sync.exceptions import Step2RequiredError
 from portal.db import connect_db, init_db, log_sync_finish, log_sync_start
 from portal.infrastructure import config
 from portal.main import app
@@ -43,6 +46,52 @@ async def test_sync_status_returns_list(test_client):
 
 
 @pytest.mark.asyncio
+async def test_sync_runs_recommendation_when_data_changed(test_client, monkeypatch):
+    client, _ = test_client
+    calls = []
+
+    async def fake_sync_activities():
+        return {"added": 0, "updated": 1, "total": 1, "error": None, "sync_id": 42}
+
+    async def fake_generate_daily_recommendation(sync_id=None):
+        calls.append(sync_id)
+        return {"status": "rest", "message": "Сегодня отдых"}
+
+    from portal.routers import sync as sync_router
+
+    monkeypatch.setattr(sync_router, "sync_activities", fake_sync_activities)
+    monkeypatch.setattr(sync_router, "generate_daily_recommendation", fake_generate_daily_recommendation)
+
+    response = await client.post("/api/sync")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recommendation"] == {"status": "rest", "message": "Сегодня отдых"}
+    assert calls == [42]
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_recommendation_when_nothing_changed(test_client, monkeypatch):
+    client, _ = test_client
+
+    async def fake_sync_activities():
+        return {"added": 0, "updated": 0, "total": 0, "error": None, "sync_id": 42}
+
+    async def fake_generate_daily_recommendation(sync_id=None):
+        raise AssertionError("recommendation should not run")
+
+    from portal.routers import sync as sync_router
+
+    monkeypatch.setattr(sync_router, "sync_activities", fake_sync_activities)
+    monkeypatch.setattr(sync_router, "generate_daily_recommendation", fake_generate_daily_recommendation)
+
+    response = await client.post("/api/sync")
+
+    assert response.status_code == 200
+    assert response.json()["recommendation"] is None
+
+
+@pytest.mark.asyncio
 async def test_auth_status_when_not_authenticated(test_client):
     client, _ = test_client
     response = await client.get("/api/auth/status")
@@ -51,6 +100,84 @@ async def test_auth_status_when_not_authenticated(test_client):
         "authenticated": False,
         "email": None,
         "expires_at": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_auth_login_reuses_existing_device_id(test_client, monkeypatch):
+    client, _ = test_client
+    state = AuthState(
+        email="old@example.com",
+        user_id="123",
+        c_user_id="c-user",
+        service_id="miothealth",
+        pass_token="pass",
+        service_token="service",
+        ssecurity="security",
+        psecurity=None,
+        auto_login_url="https://example.com/sts",
+        device_id="DEVICE-OLD",
+        slh=None,
+        ph=None,
+        sts_cookie_header="",
+        cookies=[],
+        created_at="2026-04-24T00:00:00+00:00",
+        updated_at="2026-04-24T00:00:00+00:00",
+    )
+    save_state(state, config.MI_FITNESS_STATE_PATH)
+    captured = {}
+
+    class DummySession:
+        def to_auth_state(self):
+            return state
+
+    class DummyAuthClient:
+        @staticmethod
+        def generate_device_id():
+            return "DEVICE-NEW"
+
+        def login_with_password(self, *, email, password, device_id):
+            captured["device_id"] = device_id
+            return DummySession()
+
+    from portal.routers import auth as auth_router
+
+    monkeypatch.setattr(auth_router, "get_auth_client", lambda: DummyAuthClient())
+
+    response = await client.post("/api/auth/login", json={"email": "user@example.com", "password": "password"})
+
+    assert response.status_code == 200
+    assert response.json() == {"success": True}
+    assert captured["device_id"] == "DEVICE-OLD"
+
+
+@pytest.mark.asyncio
+async def test_auth_login_returns_step2_verification_url(test_client, monkeypatch):
+    client, _ = test_client
+
+    class DummyAuthClient:
+        @staticmethod
+        def generate_device_id():
+            return "DEVICE"
+
+        def login_with_password(self, *, email, password, device_id):
+            raise Step2RequiredError(
+                "Xiaomi Passport requested a step-2 or interactive verification flow.",
+                payload={"notificationUrl": "/pass/confirm"},
+            )
+
+    from portal.routers import auth as auth_router
+
+    monkeypatch.setattr(auth_router, "get_auth_client", lambda: DummyAuthClient())
+
+    response = await client.post("/api/auth/login", json={"email": "user@example.com", "password": "password"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": False,
+        "error": "Xiaomi Passport requested a step-2 or interactive verification flow.",
+        "action": "verification",
+        "verification_url": "https://account.xiaomi.com/pass/confirm",
     }
 
 

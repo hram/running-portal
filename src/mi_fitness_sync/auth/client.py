@@ -157,6 +157,102 @@ class MiFitnessAuthClient:
             cookies=self._serialize_cookies(),
         )
 
+    def refresh_auth_state(self, auth_state: AuthState) -> AuthState:
+        for cookie in auth_state.cookies:
+            name = cookie.get("name")
+            value = cookie.get("value")
+            if not isinstance(name, str) or not isinstance(value, str):
+                continue
+            self.session.cookies.set(
+                name,
+                str(value),
+                domain=cookie.get("domain") if isinstance(cookie.get("domain"), str) else None,
+                path=cookie.get("path") if isinstance(cookie.get("path"), str) else "/",
+            )
+
+        response = self.session.get(
+            URL_LOGIN,
+            params={"sid": auth_state.service_id or self.service_id, "_json": "true"},
+            cookies={
+                "deviceId": str(auth_state.device_id),
+                "userId": str(auth_state.user_id),
+                "passToken": str(auth_state.pass_token),
+            },
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+
+        payload = self._load_json_payload(response.text)
+        self._raise_for_login_requirements(payload)
+        self._raise_for_login_error(payload)
+
+        user_id = self._pick_first_non_empty(payload.get("userId"), auth_state.user_id)
+        pass_token = self._pick_first_non_empty(
+            response.headers.get("re-pass-token"),
+            payload.get("passToken"),
+            self._cookie_value(response.cookies, "passToken"),
+            auth_state.pass_token,
+        )
+        c_user_id = self._pick_first_non_empty(
+            payload.get("cUserId"),
+            self._cookie_value(response.cookies, "cUserId"),
+            response.headers.get("cUserId"),
+            auth_state.c_user_id,
+        )
+        refreshed_ssecurity = self._pick_first_non_empty(
+            payload.get("ssecurity"),
+            self._extension_value(response, "ssecurity"),
+        )
+        nonce = self._pick_first_non_empty(payload.get("nonce"), self._extension_value(response, "nonce"))
+        psecurity = self._pick_first_non_empty(
+            payload.get("psecurity"),
+            self._extension_value(response, "psecurity"),
+            auth_state.psecurity,
+        )
+        auto_login_url = payload.get("location")
+        ssecurity = self._pick_first_non_empty(refreshed_ssecurity, auth_state.ssecurity)
+
+        if not pass_token:
+            raise XiaomiApiError("Pass token refresh response did not include a passToken.", payload=payload)
+        if not c_user_id:
+            raise XiaomiApiError("Pass token refresh response did not include cUserId.", payload=payload)
+        if not ssecurity:
+            raise XiaomiApiError("Pass token refresh response did not include ssecurity.", payload=payload)
+        if not auto_login_url:
+            raise XiaomiApiError("Pass token refresh response did not include an STS location URL.", payload=payload)
+
+        if refreshed_ssecurity and nonce not in (None, ""):
+            sts_response = self._follow_sts(auto_login_url=auto_login_url, nonce=str(nonce), ssecurity=ssecurity)
+        else:
+            sts_response = self.session.get(
+                auto_login_url,
+                timeout=self.timeout,
+                allow_redirects=True,
+            )
+            sts_response.raise_for_status()
+        service_token = self._extract_service_token(sts_response)
+        slh = self._read_sts_cookie(sts_response, f"{auth_state.service_id or self.service_id}_slh")
+        ph = self._read_sts_cookie(sts_response, f"{auth_state.service_id or self.service_id}_ph")
+
+        return AuthState(
+            email=auth_state.email,
+            user_id=user_id,
+            c_user_id=c_user_id,
+            service_id=auth_state.service_id or self.service_id,
+            pass_token=pass_token,
+            service_token=service_token,
+            ssecurity=ssecurity,
+            psecurity=psecurity,
+            auto_login_url=auto_login_url,
+            device_id=auth_state.device_id,
+            slh=slh,
+            ph=ph,
+            sts_cookie_header=self._build_cookie_header(sts_response),
+            cookies=self._serialize_cookies(),
+            created_at=auth_state.created_at,
+            updated_at=utc_now_iso(),
+        )
+
     def _build_password_login_form(
         self,
         *,
@@ -217,15 +313,30 @@ class MiFitnessAuthClient:
         raise XiaomiApiError("STS response did not include a Mi Fitness serviceToken.")
 
     def _read_sts_cookie(self, response: requests.Response, cookie_name: str) -> str | None:
-        for cookie in self.session.cookies:
-            if cookie.name == cookie_name:
-                return cookie.value
         raw_cookie = response.headers.get("set-cookie")
         if raw_cookie:
             cookie = SimpleCookie()
             cookie.load(raw_cookie)
             if cookie_name in cookie:
                 return cookie[cookie_name].value
+
+        response_matches = [cookie for cookie in response.cookies if cookie.name == cookie_name]
+        if response_matches:
+            return response_matches[-1].value
+
+        matches = [cookie for cookie in self.session.cookies if cookie.name == cookie_name]
+        preferred_domains = (
+            "sts-hlth.io.mi.com",
+            ".sts-hlth.io.mi.com",
+            "hlth.io.mi.com",
+            ".hlth.io.mi.com",
+        )
+        for domain in preferred_domains:
+            for cookie in reversed(matches):
+                if cookie.domain == domain:
+                    return cookie.value
+        if matches:
+            return matches[-1].value
         return None
 
     def _build_cookie_header(self, response: requests.Response) -> str:

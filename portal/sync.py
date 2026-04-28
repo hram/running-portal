@@ -9,7 +9,9 @@ from typing import Any
 
 from mi_fitness_sync.activity.client import MiFitnessActivitiesClient
 from mi_fitness_sync.auth.client import MiFitnessAuthClient
-from mi_fitness_sync.auth.store import DEFAULT_STATE_PATH, load_state
+from mi_fitness_sync.auth.state import AuthState
+from mi_fitness_sync.auth.store import DEFAULT_STATE_PATH, delete_state, load_state, save_state
+from mi_fitness_sync.exceptions import XiaomiApiError
 from mi_fitness_sync.fds.cache import DEFAULT_CACHE_DIR
 
 from portal.db import (
@@ -29,6 +31,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_SYNC_LOOKBACK_DAYS = 90
 DETAIL_CACHE_TTL_DAYS = 7
 SYNC_PAGE_LIMIT = 1000
+AUTH_EXPIRED_MESSAGE = "Сессия Mi Fitness истекла. Войдите заново и повторите синхронизацию."
 
 
 def _resolve_db_path() -> str:
@@ -143,8 +146,8 @@ def get_auth_client() -> MiFitnessAuthClient:
     return MiFitnessAuthClient()
 
 
-def get_activity_client() -> MiFitnessActivitiesClient:
-    auth_state = load_state(_resolve_state_path())
+def get_activity_client(auth_state: AuthState | None = None) -> MiFitnessActivitiesClient:
+    auth_state = auth_state or load_state(_resolve_state_path())
     if auth_state is None:
         raise RuntimeError("Mi Fitness auth state not found. Login is required before sync.")
     return MiFitnessActivitiesClient(
@@ -152,6 +155,95 @@ def get_activity_client() -> MiFitnessActivitiesClient:
         country_code=_resolve_country_code(),
         cache_dir=_resolve_cache_dir(),
     )
+
+
+def refresh_auth_state() -> AuthState:
+    auth_state = load_state(_resolve_state_path())
+    if auth_state is None:
+        raise RuntimeError("Mi Fitness auth state not found. Login is required before sync.")
+
+    pass_token_error: Exception | None = None
+    try:
+        refreshed_state = get_auth_client().refresh_auth_state(auth_state)
+        validate_auth_state(refreshed_state)
+        save_state(refreshed_state, _resolve_state_path())
+        return refreshed_state
+    except Exception as exc:
+        pass_token_error = exc
+        logger.info("Mi Fitness passToken refresh did not produce a valid activity session")
+
+    if config.MI_FITNESS_PASSWORD:
+        client = get_auth_client()
+        session = client.login_with_password(
+            email=config.MI_FITNESS_EMAIL or auth_state.email,
+            password=config.MI_FITNESS_PASSWORD,
+            device_id=auth_state.device_id or client.generate_device_id(),
+        )
+        refreshed_state = session.to_auth_state()
+        validate_auth_state(refreshed_state)
+        save_state(refreshed_state, _resolve_state_path())
+        return refreshed_state
+
+    raise pass_token_error
+
+
+def validate_auth_state(auth_state: AuthState) -> None:
+    client = MiFitnessActivitiesClient(
+        auth_state,
+        country_code=_resolve_country_code(),
+        cache_dir=_resolve_cache_dir(),
+        no_cache=True,
+    )
+    client.list_activities(
+        start_time=int((_utc_now() - timedelta(days=7)).timestamp()),
+        end_time=None,
+        limit=1,
+        category=None,
+    )
+
+
+async def list_activities_with_auth_retry(
+    *,
+    start_time: int,
+    end_time: int | None,
+    limit: int,
+    category: str | None,
+) -> list[Any]:
+    client = get_activity_client()
+    try:
+        return await asyncio.to_thread(
+            client.list_activities,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+            category=category,
+        )
+    except XiaomiApiError as exc:
+        if exc.code != 401:
+            raise
+        logger.info("Mi Fitness auth token expired during activity sync; refreshing auth state")
+        refreshed_state = await asyncio.to_thread(refresh_auth_state)
+        refreshed_client = get_activity_client(refreshed_state)
+        return await asyncio.to_thread(
+            refreshed_client.list_activities,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+            category=category,
+        )
+
+
+async def get_activity_detail_with_auth_retry(activity_id: str) -> Any:
+    client = get_activity_client()
+    try:
+        return await asyncio.to_thread(client.get_activity_detail, activity_id)
+    except XiaomiApiError as exc:
+        if exc.code != 401:
+            raise
+        logger.info("Mi Fitness auth token expired during detail fetch; refreshing auth state")
+        refreshed_state = await asyncio.to_thread(refresh_auth_state)
+        refreshed_client = get_activity_client(refreshed_state)
+        return await asyncio.to_thread(refreshed_client.get_activity_detail, activity_id)
 
 
 async def get_last_sync_date(conn) -> datetime | None:
@@ -175,9 +267,7 @@ async def sync_activities(since: datetime | None = None) -> dict[str, Any]:
         if effective_since.tzinfo is None:
             effective_since = effective_since.replace(tzinfo=timezone.utc)
 
-        client = get_activity_client()
-        activities = await asyncio.to_thread(
-            client.list_activities,
+        activities = await list_activities_with_auth_retry(
             start_time=int(effective_since.timestamp()),
             end_time=None,
             limit=SYNC_PAGE_LIMIT,
@@ -204,6 +294,13 @@ async def sync_activities(since: datetime | None = None) -> dict[str, Any]:
 
         await log_sync_finish(conn, sync_id, added=added, updated=updated, error=None)
         return {"added": added, "updated": updated, "total": len(filtered), "error": None, "sync_id": sync_id}
+    except XiaomiApiError as exc:
+        logger.exception("Sync failed")
+        error = AUTH_EXPIRED_MESSAGE if exc.code == 401 else str(exc)
+        if exc.code == 401:
+            delete_state(_resolve_state_path())
+        await log_sync_finish(conn, sync_id, added=0, updated=0, error=error)
+        return {"added": 0, "updated": 0, "total": 0, "error": error, "sync_id": sync_id}
     except Exception as exc:
         logger.exception("Sync failed")
         await log_sync_finish(conn, sync_id, added=0, updated=0, error=str(exc))
@@ -221,8 +318,7 @@ async def fetch_detail(activity_id: str) -> dict[str, Any] | None:
             if cached_dt is not None and (_utc_now() - cached_dt) < timedelta(days=DETAIL_CACHE_TTL_DAYS):
                 return _deserialize_detail_row(cached)
 
-        client = get_activity_client()
-        detail = await asyncio.to_thread(client.get_activity_detail, activity_id)
+        detail = await get_activity_detail_with_auth_retry(activity_id)
         detail_dict = detail.to_json_dict()
         stored_detail = {
             "samples": detail_dict.get("samples") or [],
@@ -231,6 +327,11 @@ async def fetch_detail(activity_id: str) -> dict[str, Any] | None:
         }
         await upsert_detail(conn, activity_id, stored_detail)
         return stored_detail
+    except XiaomiApiError as exc:
+        if exc.code == 401:
+            delete_state(_resolve_state_path())
+        logger.exception("Failed to fetch detail for %s", activity_id)
+        return None
     except Exception:
         logger.exception("Failed to fetch detail for %s", activity_id)
         return None
