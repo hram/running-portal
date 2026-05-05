@@ -326,11 +326,7 @@ async def sync_activities(since: datetime | None = None) -> dict[str, Any]:
             try:
                 await _load_and_store_detail(conn, activity_id)
                 details_loaded = 1
-            except XiaomiApiError as exc:
-                if exc.code == 401:
-                    from mi_fitness_sync.auth.store import delete_state
-
-                    delete_state(_resolve_state_path())
+            except XiaomiApiError:
                 logger.exception("Failed to auto-fetch detail for new activity %s", activity_id)
             except Exception:
                 logger.exception("Failed to auto-fetch detail for new activity %s", activity_id)
@@ -347,10 +343,6 @@ async def sync_activities(since: datetime | None = None) -> dict[str, Any]:
     except XiaomiApiError as exc:
         logger.exception("Sync failed")
         error = AUTH_EXPIRED_MESSAGE if exc.code == 401 else str(exc)
-        if exc.code == 401:
-            from mi_fitness_sync.auth.store import delete_state
-
-            delete_state(_resolve_state_path())
         await log_sync_finish(conn, sync_id, added=0, updated=0, error=error)
         return {"added": 0, "updated": 0, "total": 0, "details_loaded": 0, "error": error, "sync_id": sync_id}
     except Exception as exc:
@@ -372,10 +364,6 @@ async def fetch_detail(activity_id: str) -> dict[str, Any] | None:
 
         return await _load_and_store_detail(conn, activity_id)
     except XiaomiApiError as exc:
-        if exc.code == 401:
-            from mi_fitness_sync.auth.store import delete_state
-
-            delete_state(_resolve_state_path())
         logger.exception("Failed to fetch detail for %s", activity_id)
         return None
     except Exception:

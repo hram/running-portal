@@ -79,6 +79,31 @@ const STATUS_LABELS = {
   rest: "😴 Отдыхать",
 };
 
+const MONTH_NAMES = [
+  "",
+  "январь",
+  "февраль",
+  "март",
+  "апрель",
+  "май",
+  "июнь",
+  "июль",
+  "август",
+  "сентябрь",
+  "октябрь",
+  "ноябрь",
+  "декабрь",
+];
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 async function triggerSync() {
   const status = document.getElementById("sync-status");
   const button = document.getElementById("sync-btn");
@@ -185,8 +210,253 @@ async function initDashboard() {
   renderDashboardMetrics(activities);
   renderDashboardAlerts(activities);
   await renderProgressCard();
-  renderDistanceChart(activities.slice(0, 20).reverse());
+  await renderGoalCard();
+  renderDistanceChart(buildDailyDistanceSeries(activities.slice(0, 20).reverse()));
   await loadRunsPage(0);
+}
+
+function goalStatusBadge(status) {
+  const statusMap = {
+    on_track: { cls: "goal-badge--ok", text: "идёт по плану" },
+    slightly_behind: { cls: "goal-badge--warn", text: "немного отстаём" },
+    behind: { cls: "goal-badge--danger", text: "отстаём" },
+    no_goal: { cls: "", text: "цель не установлена" },
+  };
+  const item = statusMap[status] || statusMap.no_goal;
+  return `<span class="goal-badge ${item.cls}">${item.text}</span>`;
+}
+
+function progressBar(label, percent, expectedPercent, showExpectedLabel = false) {
+  const safePercent = Math.max(0, Math.min(100, Number(percent || 0)));
+  const safeExpected = Math.max(0, Math.min(100, Number(expectedPercent || 0)));
+  return `
+    <div class="goal-progress">
+      <div class="goal-progress-row">
+        <span>${label}</span>
+        <span>${Number(percent || 0).toFixed(1)}%</span>
+      </div>
+      <div class="goal-progress-track">
+        <div class="goal-progress-bar" style="width:${safePercent}%"></div>
+        <div class="goal-progress-expected" style="left:${safeExpected}%">
+          ${showExpectedLabel ? `<span class="goal-progress-expected-label">план ${Number(expectedPercent || 0).toFixed(1)}%</span>` : ""}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function renderGoalCard() {
+  const card = document.getElementById("goal-card");
+  const titleEl = document.getElementById("goal-card-title");
+  const badgeEl = document.getElementById("goal-status-badge");
+  const content = document.getElementById("goal-content");
+  if (!card || !titleEl || !badgeEl || !content) {
+    return;
+  }
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  titleEl.textContent = `Цель на ${MONTH_NAMES[month]}`;
+  badgeEl.innerHTML = "";
+  content.innerHTML = '<div class="card-hint">Загрузка цели...</div>';
+
+  try {
+    const res = await fetch(`/api/goals/monthly?year=${year}&month=${month}`);
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || "Не удалось загрузить цель.");
+    }
+    badgeEl.innerHTML = goalStatusBadge(data.status);
+
+    if (data.status === "no_goal") {
+      content.innerHTML = `
+        <div class="goal-empty">
+          <div class="goal-empty-title">Установи цель на месяц</div>
+          <div class="goal-empty-text">
+            AI может предложить реалистичную цель по истории пробежек, или можно ввести цель вручную.
+          </div>
+          <div class="goal-actions goal-actions--center">
+            <button class="btn btn-primary" type="button" onclick="suggestGoal(${year}, ${month})">Спросить AI</button>
+            <button class="btn" type="button" onclick="showManualGoalForm(${year}, ${month})">Ввести вручную</button>
+          </div>
+        </div>
+        <div id="goal-suggestion" class="goal-panel" hidden></div>
+        <div id="goal-form" class="goal-panel" hidden></div>
+      `;
+      return;
+    }
+
+    const goal = data.goal;
+    const progress = data.progress;
+    const neededPerRunText = data.runs_remaining > 0
+      ? `${Number(data.needed_km_per_run || 0).toFixed(1)} км/пробежку`
+      : "цель по пробежкам закрыта";
+    content.innerHTML = `
+      <div class="goal-metrics">
+        ${metricCard("Пройдено", Number(progress.total_km || 0).toFixed(1), `км из ${Number(goal.km_goal).toFixed(1)}`)}
+        ${metricCard("Пробежек", String(progress.runs_count || 0), `из ${goal.runs_goal}`)}
+        ${metricCard("Осталось", Number(data.km_remaining || 0).toFixed(1), `км · ${data.days_remaining} дней`)}
+        ${metricCard("Нужно", neededPerRunText, `${Number(data.needed_km_per_day || 0).toFixed(2)} км/день`)}
+      </div>
+      ${progressBar("Километры", data.km_pct, data.days_elapsed_pct, true)}
+      ${progressBar("Пробежки", data.runs_pct, data.days_elapsed_pct)}
+      <div class="goal-note">
+        Осталось ${Number(data.km_remaining || 0).toFixed(1)} км и ${data.runs_remaining} пробежек.
+        Плановая отметка месяца сейчас ${Number(data.days_elapsed_pct || 0).toFixed(1)}%.
+      </div>
+      <div class="goal-actions">
+        <button class="btn" type="button" onclick="suggestGoal(${year}, ${month})">Скорректировать с AI</button>
+        <button class="btn btn-secondary" type="button" onclick="showManualGoalForm(${year}, ${month}, ${Number(goal.km_goal)}, ${Number(goal.runs_goal)})">Изменить вручную</button>
+      </div>
+      <div id="goal-suggestion" class="goal-panel" hidden></div>
+      <div id="goal-form" class="goal-panel" hidden></div>
+    `;
+  } catch (error) {
+    badgeEl.innerHTML = "";
+    content.innerHTML = `<div class="alert alert-warning"><span class="alert-dot"></span>${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function suggestGoal(year, month) {
+  const suggestion = document.getElementById("goal-suggestion");
+  const form = document.getElementById("goal-form");
+  if (!suggestion) {
+    return;
+  }
+  if (form) {
+    form.hidden = true;
+  }
+  suggestion.hidden = false;
+  suggestion.innerHTML = '<div class="ai-bubble"><span class="spinner"></span>AI анализирует историю...</div>';
+
+  try {
+    const res = await fetch(`/api/goals/monthly/suggest?year=${year}&month=${month}`);
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || "Не удалось получить предложение.");
+    }
+    suggestion.innerHTML = `
+      <div class="ai-bubble">${escapeHtml(data.message || "Анализ получен.")}</div>
+      <div class="goal-variants">
+        ${goalVariant("Консервативная", data.conservative?.km_goal, data.conservative?.runs_goal)}
+        ${goalVariant("Рекомендуется", data.km_goal, data.runs_goal, true)}
+        ${goalVariant("Амбициозная", data.ambitious?.km_goal, data.ambitious?.runs_goal)}
+      </div>
+      <div class="goal-actions">
+        <button class="btn btn-primary" id="accept-goal-btn" type="button"
+          data-km="${Number(data.km_goal || 0)}"
+          data-runs="${Number(data.runs_goal || 0)}"
+          data-message="${escapeHtml(data.message || "")}"
+          onclick="acceptSuggestedGoal(${year}, ${month})">Принять цель</button>
+        <button class="btn" type="button" onclick="hideGoalPanel('goal-suggestion')">Отмена</button>
+      </div>
+    `;
+  } catch (error) {
+    suggestion.innerHTML = `<div class="alert alert-warning"><span class="alert-dot"></span>${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function goalVariant(label, km, runs, selected = false) {
+  const safeKm = Number(km || 0);
+  const safeRuns = Number(runs || 0);
+  return `
+    <button class="metric goal-variant ${selected ? "goal-variant--selected" : ""}" type="button"
+      data-km="${safeKm}" data-runs="${safeRuns}" onclick="selectGoalVariant(this)">
+      <span class="metric-label">${label}</span>
+      <span class="metric-value">${safeKm ? safeKm.toFixed(1) : "—"}</span>
+      <span class="metric-sub">км · ${safeRuns || "—"} пробежек</span>
+    </button>
+  `;
+}
+
+function selectGoalVariant(el) {
+  const root = el.closest(".goal-variants");
+  if (root) {
+    root.querySelectorAll(".goal-variant").forEach((item) => item.classList.remove("goal-variant--selected"));
+  }
+  el.classList.add("goal-variant--selected");
+  const button = document.getElementById("accept-goal-btn");
+  if (button) {
+    button.dataset.km = el.dataset.km;
+    button.dataset.runs = el.dataset.runs;
+  }
+}
+
+async function acceptSuggestedGoal(year, month) {
+  const button = document.getElementById("accept-goal-btn");
+  if (!button) {
+    return;
+  }
+  await saveGoal(year, month, Number(button.dataset.km), Number(button.dataset.runs), button.dataset.message || null);
+}
+
+function showManualGoalForm(year, month, km = 50, runs = 12) {
+  const form = document.getElementById("goal-form");
+  const suggestion = document.getElementById("goal-suggestion");
+  if (!form) {
+    return;
+  }
+  if (suggestion) {
+    suggestion.hidden = true;
+  }
+  form.hidden = false;
+  form.innerHTML = `
+    <div class="goal-form-grid">
+      <label class="settings-field">
+        <span class="settings-label">Километры</span>
+        <input class="settings-input" type="number" id="goal-km-input" min="1" max="1000" step="0.1" value="${Number(km).toFixed(1)}">
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">Пробежек</span>
+        <input class="settings-input" type="number" id="goal-runs-input" min="1" max="31" step="1" value="${Number(runs)}">
+      </label>
+    </div>
+    <div class="goal-actions">
+      <button class="btn btn-primary" type="button" onclick="saveManualGoal(${year}, ${month})">Сохранить</button>
+      <button class="btn" type="button" onclick="hideGoalPanel('goal-form')">Отмена</button>
+    </div>
+  `;
+}
+
+async function saveManualGoal(year, month) {
+  const km = Number(document.getElementById("goal-km-input")?.value);
+  const runs = Number(document.getElementById("goal-runs-input")?.value);
+  await saveGoal(year, month, km, runs, null);
+}
+
+async function saveGoal(year, month, km, runs, aiSuggestion) {
+  if (!Number.isFinite(km) || km <= 0 || !Number.isFinite(runs) || runs <= 0) {
+    return;
+  }
+  const response = await fetch("/api/goals/monthly", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      year,
+      month,
+      km_goal: km,
+      runs_goal: Math.round(runs),
+      ai_suggestion: aiSuggestion,
+    }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    const panel = document.getElementById("goal-form") || document.getElementById("goal-suggestion");
+    if (panel) {
+      panel.hidden = false;
+      panel.innerHTML = `<div class="alert alert-warning"><span class="alert-dot"></span>${escapeHtml(payload.detail || "Не удалось сохранить цель.")}</div>`;
+    }
+    return;
+  }
+  await renderGoalCard();
+}
+
+function hideGoalPanel(id) {
+  const panel = document.getElementById(id);
+  if (panel) {
+    panel.hidden = true;
+  }
 }
 
 async function renderProgressCard() {
@@ -608,10 +878,11 @@ function renderDistanceChart(activities) {
 
   const labels = activities.map((item) => formatShortDate(item.date));
   const visibleTickIndexes = new Set();
-  if (labels.length) {
-    const anchors = [0, Math.floor((labels.length - 1) * 0.25), Math.floor((labels.length - 1) * 0.5), Math.floor((labels.length - 1) * 0.75), labels.length - 1];
-    anchors.forEach((index) => visibleTickIndexes.add(index));
-  }
+  activities.forEach((item, index) => {
+    if (item.showTick) {
+      visibleTickIndexes.add(index);
+    }
+  });
 
   dashboardChart = new Chart(canvas, {
     type: "bar",
@@ -641,6 +912,8 @@ function renderDistanceChart(activities) {
           ticks: {
             color: "#9b9b96",
             autoSkip: false,
+            minRotation: 0,
+            maxRotation: 0,
             callback(value, index) {
               return visibleTickIndexes.has(index) ? labels[index] : "";
             },
@@ -651,6 +924,65 @@ function renderDistanceChart(activities) {
       },
     },
   });
+}
+
+function buildDailyDistanceSeries(activities) {
+  if (!Array.isArray(activities) || !activities.length) {
+    return [];
+  }
+
+  const distanceByDate = new Map();
+  for (const item of activities) {
+    const key = dateKey(item.date);
+    if (!key) {
+      continue;
+    }
+    distanceByDate.set(key, (distanceByDate.get(key) || 0) + Number(item.distance_km || 0));
+  }
+
+  const keys = Array.from(distanceByDate.keys()).sort();
+  if (!keys.length) {
+    return [];
+  }
+  const tickKeys = new Set();
+  const anchors = [0, Math.floor((keys.length - 1) * 0.25), Math.floor((keys.length - 1) * 0.5), Math.floor((keys.length - 1) * 0.75), keys.length - 1];
+  anchors.forEach((index) => tickKeys.add(keys[index]));
+
+  const series = [];
+  for (let cursor = parseDateKey(keys[0]), end = parseDateKey(keys[keys.length - 1]); cursor <= end; cursor = addUtcDays(cursor, 1)) {
+    const key = cursor.toISOString().slice(0, 10);
+    series.push({
+      date: `${key}T00:00:00Z`,
+      distance_km: distanceByDate.get(key) || 0,
+      hasRun: distanceByDate.has(key),
+      showTick: tickKeys.has(key),
+    });
+  }
+  return series;
+}
+
+function dateKey(value) {
+  if (!value) {
+    return "";
+  }
+  const direct = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+  if (direct) {
+    return direct[1];
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  return parsed.toISOString().slice(0, 10);
+}
+
+function parseDateKey(key) {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function addUtcDays(date, days) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + days));
 }
 
 function renderRunsTable(activities) {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 import json
 import re
 import subprocess
@@ -256,6 +257,178 @@ def build_daily_prompt(activities: list[dict], settings: dict[str, str]) -> str:
     )
 
 
+def _parse_claude_json(raw: str) -> dict:
+    cleaned = raw.strip()
+    cleaned = re.sub(r"^```json\s*", "", cleaned)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    return json.loads(cleaned)
+
+
+def _monthly_goal_fallback(activities: list[dict], error: Exception | None = None) -> dict[str, object]:
+    monthly: dict[str, dict[str, float | int]] = defaultdict(lambda: {"km": 0.0, "runs": 0})
+    for activity in activities:
+        try:
+            dt = datetime.fromisoformat(str(activity.get("date", "")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        key = f"{dt.year}-{dt.month:02d}"
+        monthly[key]["km"] = float(monthly[key]["km"]) + float(activity.get("distance_km") or 0)
+        monthly[key]["runs"] = int(monthly[key]["runs"]) + 1
+
+    if not monthly:
+        km_goal = 40.0
+        runs_goal = 10
+    else:
+        recent = [monthly[key] for key in sorted(monthly.keys())[-3:]]
+        best_km = max(float(item["km"]) for item in recent)
+        best_runs = max(int(item["runs"]) for item in recent)
+        km_goal = round(max(20.0, min(best_km * 1.15, best_km + 10)), 1)
+        runs_goal = max(6, min(31, round(best_runs * 1.15)))
+
+    conservative_km = round(max(10.0, km_goal * 0.85), 1)
+    conservative_runs = max(4, round(runs_goal * 0.85))
+    ambitious_km = round(km_goal * 1.15, 1)
+    ambitious_runs = min(31, max(runs_goal + 1, round(runs_goal * 1.15)))
+    message = (
+        f"Предлагаю цель {km_goal:.1f} км / {runs_goal} пробежек. "
+        "Это умеренный шаг от недавнего объёма: достаточно для прогресса, но без резкого скачка нагрузки."
+    )
+    if error is not None:
+        message = f"{message} AI-анализ сейчас недоступен, поэтому цель рассчитана по истории пробежек."
+
+    return {
+        "km_goal": km_goal,
+        "runs_goal": runs_goal,
+        "message": message,
+        "conservative": {"km_goal": conservative_km, "runs_goal": conservative_runs},
+        "ambitious": {"km_goal": ambitious_km, "runs_goal": ambitious_runs},
+        "reasoning": "fallback" if error is None else "fallback_after_error",
+    }
+
+
+def _normalize_goal_suggestion(payload: dict, fallback: dict[str, object]) -> dict[str, object]:
+    km_goal = round(float(payload.get("km_goal") or fallback["km_goal"]), 1)
+    runs_goal = int(payload.get("runs_goal") or fallback["runs_goal"])
+    km_goal = max(1.0, min(1000.0, km_goal))
+    runs_goal = max(1, min(31, runs_goal))
+
+    conservative_raw = payload.get("conservative") if isinstance(payload.get("conservative"), dict) else {}
+    ambitious_raw = payload.get("ambitious") if isinstance(payload.get("ambitious"), dict) else {}
+    fallback_conservative = fallback["conservative"]
+    fallback_ambitious = fallback["ambitious"]
+
+    return {
+        "km_goal": km_goal,
+        "runs_goal": runs_goal,
+        "message": str(payload.get("message") or fallback["message"]),
+        "conservative": {
+            "km_goal": round(float(conservative_raw.get("km_goal") or fallback_conservative["km_goal"]), 1),
+            "runs_goal": int(conservative_raw.get("runs_goal") or fallback_conservative["runs_goal"]),
+        },
+        "ambitious": {
+            "km_goal": round(float(ambitious_raw.get("km_goal") or fallback_ambitious["km_goal"]), 1),
+            "runs_goal": int(ambitious_raw.get("runs_goal") or fallback_ambitious["runs_goal"]),
+        },
+        "reasoning": str(payload.get("reasoning") or "ai"),
+    }
+
+
+async def generate_goal_suggestion(activities: list[dict], year: int, month: int) -> dict[str, object]:
+    month_names = [
+        "",
+        "январь",
+        "февраль",
+        "март",
+        "апрель",
+        "май",
+        "июнь",
+        "июль",
+        "август",
+        "сентябрь",
+        "октябрь",
+        "ноябрь",
+        "декабрь",
+    ]
+    fallback = _monthly_goal_fallback(activities)
+    if not activities:
+        return fallback
+
+    monthly: dict[str, dict[str, float | int]] = defaultdict(lambda: {"km": 0.0, "runs": 0})
+    for activity in activities:
+        try:
+            dt = datetime.fromisoformat(str(activity.get("date", "")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        key = f"{dt.year}-{dt.month:02d}"
+        monthly[key]["km"] = float(monthly[key]["km"]) + float(activity.get("distance_km") or 0)
+        monthly[key]["runs"] = int(monthly[key]["runs"]) + 1
+
+    monthly_lines = "\n".join(
+        f"  {key}: {value['km']:.1f} км, {value['runs']} пробежек"
+        for key, value in sorted(monthly.items())[-4:]
+    )
+    recent_lines = "\n".join(
+        f"  {activity['date'][:10]}: {activity.get('distance_km')} км, "
+        f"пульс {activity.get('avg_hrm')}, нагрузка {activity.get('train_load')}"
+        for activity in activities[:10]
+    )
+    prompt = f"""Ты персональный тренер по бегу. Отвечай строго в формате JSON.
+
+Бегун восстанавливается после травмы ступней и голеностопа. Цель: войти в ритм, бегать регулярно.
+Нельзя увеличивать месячную нагрузку больше чем на 20% относительно лучшего предыдущего месяца.
+
+Статистика по последним месяцам:
+{monthly_lines}
+
+Последние пробежки:
+{recent_lines}
+
+Предложи реалистичную цель на {month_names[month]} {year}.
+
+Ответь ТОЛЬКО валидным JSON без markdown:
+{{
+  "km_goal": <число с одним знаком после запятой>,
+  "runs_goal": <целое число>,
+  "message": "2-3 предложения: почему именно эта цель и как её достичь",
+  "conservative": {{"km_goal": <число>, "runs_goal": <число>}},
+  "ambitious": {{"km_goal": <число>, "runs_goal": <число>}}
+}}"""
+
+    try:
+        process = subprocess.Popen(
+            [
+                config.CLAUDE_CLI_PATH,
+                "-p",
+                prompt,
+                "--output-format",
+                "stream-json",
+                "--verbose",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        full_text: list[str] = []
+        assert process.stdout is not None
+        for line in process.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "assistant":
+                for block in event.get("message", {}).get("content", []):
+                    if block.get("type") == "text":
+                        full_text.append(block["text"])
+        process.wait()
+        return _normalize_goal_suggestion(_parse_claude_json("".join(full_text)), fallback)
+    except Exception as exc:
+        return _monthly_goal_fallback(activities, error=exc)
+
+
 async def generate_daily_recommendation(sync_id: int | None = None) -> dict[str, str]:
     async with get_db() as conn:
         activities = await get_activities(conn, limit=10, offset=0)
@@ -298,10 +471,7 @@ async def generate_daily_recommendation(sync_id: int | None = None) -> dict[str,
                         full_text.append(block["text"])
 
         process.wait()
-        raw = "".join(full_text).strip()
-        raw = re.sub(r"^```json\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
-        result = json.loads(raw)
+        result = _parse_claude_json("".join(full_text))
         status = result.get("status", "run")
         message = result.get("message", "")
 

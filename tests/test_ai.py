@@ -11,6 +11,7 @@ from portal.db import connect_db, init_db, save_ai_analysis
 from portal.db import save_recommendation
 from portal.infrastructure import config
 from portal.main import app
+from portal.routers.ai import generate_goal_suggestion
 
 
 @pytest_asyncio.fixture
@@ -128,3 +129,27 @@ async def test_post_settings_updates_values(ai_client):
     assert payload["settings"]["activity_prompt_template"] == "activity {activity_date}"
     assert payload["settings"]["target_hr_zone_low"] == "135"
     assert payload["settings"]["target_hr_zone_high"] == "165"
+
+
+@pytest.mark.asyncio
+async def test_generate_goal_suggestion_returns_history_based_fallback(monkeypatch):
+    def fake_popen(*args, **kwargs):
+        raise FileNotFoundError("claude missing")
+
+    from portal.routers import ai as ai_router
+
+    monkeypatch.setattr(ai_router.subprocess, "Popen", fake_popen)
+
+    result = await generate_goal_suggestion(
+        [
+            {"date": "2026-04-24T08:00:00+00:00", "distance_km": 5.0, "avg_hrm": 150, "train_load": 80},
+            {"date": "2026-04-20T08:00:00+00:00", "distance_km": 6.0, "avg_hrm": 152, "train_load": 90},
+        ],
+        2026,
+        5,
+    )
+
+    assert result["km_goal"] > 0
+    assert result["runs_goal"] > 0
+    assert result["reasoning"] == "fallback_after_error"
+    assert "AI-анализ сейчас недоступен" in result["message"]

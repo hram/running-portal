@@ -1,0 +1,196 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans)}
+.card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.25rem;margin-bottom:12px}
+.card-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
+.card-title{font-size:16px;font-weight:500;color:var(--color-text-primary)}
+.card-hint{font-size:12px;color:var(--color-text-secondary)}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:16px}
+.metric{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:10px 12px}
+.metric-label{font-size:10px;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+.metric-value{font-size:20px;font-weight:500;color:var(--color-text-primary)}
+.metric-sub{font-size:10px;color:var(--color-text-tertiary);margin-top:2px}
+.progress-wrap{margin-bottom:14px}
+.progress-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.progress-label{font-size:12px;color:var(--color-text-secondary)}
+.progress-pct{font-size:12px;font-weight:500;color:var(--color-text-primary)}
+.progress-track{height:8px;background:var(--color-background-secondary);border-radius:4px;overflow:visible;position:relative}
+.progress-bar{height:100%;border-radius:4px;background:#3a5040;transition:width .3s}
+.progress-expected{position:absolute;top:-3px;width:2px;height:14px;background:#c8a020;border-radius:1px}
+.progress-expected-label{position:absolute;top:-18px;font-size:10px;color:#854F0B;transform:translateX(-50%)}
+.ai-bubble{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px 14px;font-size:13px;line-height:1.65;color:var(--color-text-primary);border-left:3px solid #3a5040;margin-bottom:12px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{font-size:12px;padding:6px 14px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:transparent;color:var(--color-text-primary);cursor:pointer}
+.btn-primary{background:#3a5040;color:#fff;border-color:transparent}
+.divider{height:1px;background:var(--color-border-tertiary);margin:14px 0}
+.setup-card{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:14px 16px;text-align:center}
+.setup-title{font-size:14px;font-weight:500;color:var(--color-text-primary);margin-bottom:6px}
+.setup-hint{font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;line-height:1.6}
+.setup-inputs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.setup-field{display:flex;flex-direction:column;gap:4px;text-align:left}
+.setup-label{font-size:11px;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.06em}
+.setup-input{font-size:14px;padding:7px 10px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary)}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500}
+.badge-ok{background:#e8f0ea;color:#3a5040}
+.badge-warn{background:#fdf4e4;color:#7a4010}
+.tab-row{display:flex;gap:2px;margin-bottom:14px}
+.tab{font-size:12px;padding:5px 12px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-tertiary);background:transparent;color:var(--color-text-secondary);cursor:pointer}
+.tab.active{background:#3a5040;color:#fff;border-color:transparent}
+</style>
+
+<div style="padding:1rem 0">
+
+<div class="tab-row">
+  <button class="tab active" onclick="show('with-goal')">Цель установлена</button>
+  <button class="tab" onclick="show('no-goal')">Цель не установлена</button>
+  <button class="tab" onclick="show('ai-setup')">Помощь AI в выборе цели</button>
+</div>
+
+<div id="with-goal">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Цель на апрель</span>
+      <span class="badge badge-ok">идёт по плану</span>
+    </div>
+
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-label">Пройдено</div>
+        <div class="metric-value">28.4</div>
+        <div class="metric-sub">км из 60</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Пробежек</div>
+        <div class="metric-value">9</div>
+        <div class="metric-sub">из 14</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Осталось</div>
+        <div class="metric-value">31.6</div>
+        <div class="metric-sub">км · 6 дней</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Темп</div>
+        <div class="metric-value">3.16</div>
+        <div class="metric-sub">км/день</div>
+      </div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-row">
+        <span class="progress-label">Километры</span>
+        <span class="progress-pct">47% из 100%</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-bar" style="width:47%"></div>
+        <div class="progress-expected" style="left:77%">
+          <span class="progress-expected-label">план 77%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-row">
+        <span class="progress-label">Пробежки</span>
+        <span class="progress-pct">64% из 100%</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-bar" style="width:64%"></div>
+        <div class="progress-expected" style="left:77%">
+          <span class="progress-expected-label">план 77%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ai-bubble">
+      По километрам ты немного отстаёшь от ожидаемого темпа — но это нормально с учётом недавнего перерыва. Чтобы выйти на 60 км за оставшиеся 6 дней нужно ещё 4–5 пробежек по 6–8 км. Это реально если пульс будет держаться в норме. Начни с 5 км завтра и посмотри как реагирует тело.
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" onclick="sendPrompt('Скорректируй мою цель на апрель с учётом текущего прогресса')">Скорректировать цель ↗</button>
+      <button class="btn" onclick="sendPrompt('Составь план на оставшиеся дни апреля')">План на оставшиеся дни ↗</button>
+    </div>
+  </div>
+</div>
+
+<div id="no-goal" style="display:none">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Цель на май</span>
+      <span class="card-hint">цель не установлена</span>
+    </div>
+    <div class="setup-card">
+      <div class="setup-title">Установи цель на месяц</div>
+      <div class="setup-hint">AI проанализирует твою историю и предложит реалистичную цель — или введи свою.</div>
+      <div class="actions" style="justify-content:center">
+        <button class="btn btn-primary" onclick="sendPrompt('Предложи мне цель на май исходя из моей истории тренировок')">Спросить AI ↗</button>
+        <button class="btn" onclick="document.getElementById('no-goal').style.display='none';document.getElementById('manual-goal').style.display='block'">Ввести вручную</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="manual-goal" style="display:none">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Цель на май</span>
+    </div>
+    <div class="setup-inputs">
+      <div class="setup-field">
+        <span class="setup-label">Километры</span>
+        <input class="setup-input" type="number" placeholder="60" value="60">
+      </div>
+      <div class="setup-field">
+        <span class="setup-label">Пробежек</span>
+        <input class="setup-input" type="number" placeholder="14" value="14">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary">Сохранить</button>
+      <button class="btn">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div id="ai-setup" style="display:none">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">AI предлагает цель на май</span>
+      <span class="card-hint">на основе 55 пробежек</span>
+    </div>
+    <div class="ai-bubble">
+      За апрель ты пробежал ~28 км за 9 пробежек. EF растёт, но ты ещё восстанавливаешься после травмы. Предлагаю реалистичную цель: <strong>50 км / 12 пробежек</strong>. Это на 15% больше апреля — достаточно чтобы прогрессировать, но без риска перегрузки.
+    </div>
+    <div class="setup-inputs">
+      <div class="setup-field">
+        <span class="setup-label">Километры</span>
+        <input class="setup-input" type="number" value="50">
+      </div>
+      <div class="setup-field">
+        <span class="setup-label">Пробежек</span>
+        <input class="setup-input" type="number" value="12">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary">Принять цель</button>
+      <button class="btn" onclick="sendPrompt('Предложи другую цель на май, более амбициозную')">Другой вариант ↗</button>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+function show(id) {
+  ['with-goal','no-goal','ai-setup','manual-goal'].forEach(i => {
+    const el = document.getElementById(i);
+    if(el) el.style.display = 'none';
+  });
+  const target = document.getElementById(id);
+  if(target) target.style.display = 'block';
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    t.classList.toggle('active', ['with-goal','no-goal','ai-setup'][i] === id);
+  });
+}
+</script>

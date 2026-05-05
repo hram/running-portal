@@ -76,6 +76,17 @@ CREATE TABLE IF NOT EXISTS settings (
     value       TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS monthly_goals (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    year          INTEGER NOT NULL,
+    month         INTEGER NOT NULL,
+    km_goal       REAL NOT NULL,
+    runs_goal     INTEGER NOT NULL,
+    created_at    TEXT NOT NULL,
+    ai_suggestion TEXT,
+    UNIQUE(year, month)
+);
 """
 
 DEFAULT_SETTINGS: dict[str, str] = {
@@ -415,3 +426,67 @@ async def save_setting(conn: aiosqlite.Connection, key: str, value: str) -> None
         (key, value, utc_now_iso()),
     )
     await conn.commit()
+
+
+async def get_monthly_goal(conn: aiosqlite.Connection, year: int, month: int) -> dict[str, Any] | None:
+    cursor = await conn.execute(
+        """
+        SELECT * FROM monthly_goals
+        WHERE year = ? AND month = ?
+        """,
+        (year, month),
+    )
+    row = await cursor.fetchone()
+    return _row_to_dict(row)
+
+
+async def save_monthly_goal(
+    conn: aiosqlite.Connection,
+    year: int,
+    month: int,
+    km_goal: float,
+    runs_goal: int,
+    ai_suggestion: str | None = None,
+) -> None:
+    now = utc_now_iso()
+    await conn.execute(
+        """
+        INSERT INTO monthly_goals (
+            year,
+            month,
+            km_goal,
+            runs_goal,
+            created_at,
+            ai_suggestion
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(year, month) DO UPDATE SET
+            km_goal = excluded.km_goal,
+            runs_goal = excluded.runs_goal,
+            ai_suggestion = excluded.ai_suggestion
+        """,
+        (year, month, km_goal, runs_goal, now, ai_suggestion),
+    )
+    await conn.commit()
+
+
+async def get_monthly_progress(conn: aiosqlite.Connection, year: int, month: int) -> dict[str, Any]:
+    cursor = await conn.execute(
+        """
+        SELECT
+            COUNT(*) AS runs_count,
+            COALESCE(SUM(distance_km), 0) AS total_km
+        FROM activities
+        WHERE strftime('%Y', date) = ?
+          AND strftime('%m', date) = ?
+          AND distance_km IS NOT NULL
+          AND distance_km > 0
+        """,
+        (str(year), f"{month:02d}"),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return {"runs_count": 0, "total_km": 0.0}
+    return {
+        "runs_count": int(row["runs_count"] or 0),
+        "total_km": round(float(row["total_km"] or 0), 2),
+    }

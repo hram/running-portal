@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 CLAUDE_CLI_PATH = os.getenv("CLAUDE_CLI_PATH", "/home/hram/.local/bin/claude")
 DB_PATH = os.getenv("DB_PATH", "~/.running_portal/portal.db")

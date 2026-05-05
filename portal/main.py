@@ -4,7 +4,6 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -12,10 +11,9 @@ from fastapi.templating import Jinja2Templates
 
 from portal.db import connect_db, get_activity, get_settings, init_db, normalize_db_path
 from portal.infrastructure import config
-from portal.routers import activities, ai, auth, settings, sync
+from portal.routers import activities, ai, auth, goals, settings, sync
 
 
-load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -47,6 +45,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.include_router(activities.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
+app.include_router(goals.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(sync.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")

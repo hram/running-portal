@@ -188,7 +188,7 @@ async def test_sync_activities_skips_auto_detail_when_multiple_activities_added(
 
 
 @pytest.mark.asyncio
-async def test_sync_activities_clears_auth_state_when_refresh_fails(temp_db, monkeypatch):
+async def test_sync_activities_keeps_auth_state_when_refresh_fails(temp_db, monkeypatch):
     await init_db(str(temp_db))
     state_path = temp_db.parent / "auth.json"
     state_path.write_text("{}", encoding="utf-8")
@@ -202,7 +202,7 @@ async def test_sync_activities_clears_auth_state_when_refresh_fails(temp_db, mon
         result = await sync_activities()
 
     assert result["error"] == AUTH_EXPIRED_MESSAGE
-    assert not state_path.exists()
+    assert state_path.exists()
 
     conn = await connect_db(str(temp_db))
     try:

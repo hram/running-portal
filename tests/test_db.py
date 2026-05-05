@@ -16,6 +16,8 @@ from portal.db import (
     get_detail,
     get_ai_analysis,
     get_latest_recommendation,
+    get_monthly_goal,
+    get_monthly_progress,
     get_setting,
     get_settings,
     init_db,
@@ -23,6 +25,7 @@ from portal.db import (
     log_sync_start,
     save_recommendation,
     save_ai_analysis,
+    save_monthly_goal,
     save_setting,
     upsert_activity,
     upsert_detail,
@@ -293,3 +296,27 @@ async def test_get_activities_for_ef_filters_valid_rows(conn):
     rows = await get_activities_for_ef(conn)
     assert len(rows) == 1
     assert rows[0]["date"] == "2026-04-24T08:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_save_and_get_monthly_goal(conn):
+    await save_monthly_goal(conn, 2026, 4, 50.0, 12, ai_suggestion="AI says 50")
+    await save_monthly_goal(conn, 2026, 4, 55.5, 13, ai_suggestion="AI says 55")
+
+    goal = await get_monthly_goal(conn, 2026, 4)
+
+    assert goal is not None
+    assert goal["km_goal"] == 55.5
+    assert goal["runs_goal"] == 13
+    assert goal["ai_suggestion"] == "AI says 55"
+
+
+@pytest.mark.asyncio
+async def test_get_monthly_progress_counts_current_month_runs(conn):
+    await upsert_activity(conn, {"activity_id": "apr-1", "date": "2026-04-02T08:00:00+00:00", "distance_km": 3.25})
+    await upsert_activity(conn, {"activity_id": "apr-2", "date": "2026-04-20T08:00:00+00:00", "distance_km": 4.40})
+    await upsert_activity(conn, {"activity_id": "may-1", "date": "2026-05-02T08:00:00+00:00", "distance_km": 9.0})
+
+    progress = await get_monthly_progress(conn, 2026, 4)
+
+    assert progress == {"runs_count": 2, "total_km": 7.65}
