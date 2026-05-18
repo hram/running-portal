@@ -46,6 +46,27 @@ async def test_sync_status_returns_list(test_client):
 
 
 @pytest.mark.asyncio
+async def test_assistant_integration_manifest(test_client):
+    client, _ = test_client
+
+    response = await client.get("/.well-known/assistant-integration.json")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["name"] == "running_portal"
+    assert payload["capabilities"][0]["type"] == "context"
+    assert payload["capabilities"][0]["endpoint"] == {
+        "method": "GET",
+        "path": "/api/goals/monthly",
+    }
+    assert payload["capabilities"][1]["id"] == "daily_running_recommendation"
+    assert payload["capabilities"][1]["endpoint"] == {
+        "method": "GET",
+        "path": "/api/ai/recommendation",
+    }
+
+
+@pytest.mark.asyncio
 async def test_sync_runs_recommendation_when_data_changed(test_client, monkeypatch):
     client, _ = test_client
     calls = []

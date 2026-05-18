@@ -949,7 +949,8 @@ function buildDailyDistanceSeries(activities) {
   anchors.forEach((index) => tickKeys.add(keys[index]));
 
   const series = [];
-  for (let cursor = parseDateKey(keys[0]), end = parseDateKey(keys[keys.length - 1]); cursor <= end; cursor = addUtcDays(cursor, 1)) {
+  const endKey = todayDateKey() > keys[keys.length - 1] ? todayDateKey() : keys[keys.length - 1];
+  for (let cursor = parseDateKey(keys[0]), end = parseDateKey(endKey); cursor <= end; cursor = addUtcDays(cursor, 1)) {
     const key = cursor.toISOString().slice(0, 10);
     series.push({
       date: `${key}T00:00:00Z`,
@@ -979,6 +980,14 @@ function dateKey(value) {
 function parseDateKey(key) {
   const [year, month, day] = key.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day));
+}
+
+function todayDateKey() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function addUtcDays(date, days) {

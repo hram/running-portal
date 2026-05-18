@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from portal.db import connect_db, get_activity, get_settings, init_db, normalize_db_path
 from portal.infrastructure import config
-from portal.routers import activities, ai, auth, goals, settings, sync
+from portal.routers import activities, ai, assistant_manifest, auth, goals, settings, sync
 
 
 logging.basicConfig(level=logging.INFO)
@@ -49,6 +49,7 @@ app.include_router(goals.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(sync.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
+app.include_router(assistant_manifest.router)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
