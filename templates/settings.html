@@ -35,11 +35,44 @@
         </label>
       </div>
 
+      <div class="settings-section">
+        <div>
+          <div class="settings-section-title">Карточки главной страницы</div>
+          <div class="card-hint">Отключённые карточки не загружаются и не отображаются на дашборде.</div>
+        </div>
+        <div class="settings-toggle-grid">
+          <label class="settings-toggle">
+            <input id="dashboard-card-today" type="checkbox" {% if settings.dashboard_card_today == "true" %}checked{% endif %}>
+            <span>Ответ на сегодня</span>
+          </label>
+          <label class="settings-toggle">
+            <input id="dashboard-card-metrics" type="checkbox" {% if settings.dashboard_card_metrics == "true" %}checked{% endif %}>
+            <span>Ключевые метрики</span>
+          </label>
+          <label class="settings-toggle">
+            <input id="dashboard-card-progress" type="checkbox" {% if settings.dashboard_card_progress == "true" %}checked{% endif %}>
+            <span>Прогресс формы</span>
+          </label>
+          <label class="settings-toggle">
+            <input id="dashboard-card-goal" type="checkbox" {% if settings.dashboard_card_goal == "true" %}checked{% endif %}>
+            <span>Цель на месяц</span>
+          </label>
+          <label class="settings-toggle">
+            <input id="dashboard-card-distance" type="checkbox" {% if settings.dashboard_card_distance == "true" %}checked{% endif %}>
+            <span>Дистанции</span>
+          </label>
+          <label class="settings-toggle">
+            <input id="dashboard-card-runs" type="checkbox" {% if settings.dashboard_card_runs == "true" %}checked{% endif %}>
+            <span>Последние пробежки</span>
+          </label>
+        </div>
+      </div>
+
       <div class="settings-help card-hint">
         Доступные переменные:
         <code>{last_date}</code>, <code>{last_distance_km}</code>, <code>{last_avg_hrm}</code>, <code>{last_avg_pace}</code>, <code>{last_train_load}</code>, <code>{last_recover_time}</code>, <code>{hours_since}</code>, <code>{recent_lines}</code>.
         Для AI тренера:
-        <code>{activity_date}</code>, <code>{activity_distance_km}</code>, <code>{activity_avg_hrm}</code>, <code>{activity_avg_pace}</code>, <code>{activity_avg_cadence}</code>, <code>{activity_avg_stride}</code>, <code>{activity_train_load}</code>, <code>{activity_recover_time}</code>, <code>{activity_zones}</code>, <code>{recent_lines}</code>.
+        <code>{current_date}</code>, <code>{activity_date}</code>, <code>{activity_distance_km}</code>, <code>{activity_avg_hrm}</code>, <code>{activity_avg_pace}</code>, <code>{activity_avg_cadence}</code>, <code>{activity_avg_stride}</code>, <code>{activity_train_load}</code>, <code>{activity_recover_time}</code>, <code>{activity_zones}</code>, <code>{recent_lines}</code>, <code>{health_lines}</code>.
       </div>
 
       <div class="settings-actions">

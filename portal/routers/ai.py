@@ -19,6 +19,7 @@ from portal.db import (
     get_activities,
     get_activity,
     get_ai_analysis,
+    get_health_states,
     get_latest_recommendation,
     get_settings,
     save_ai_analysis,
@@ -76,6 +77,25 @@ async def analyze_activity(body: AnalyzeRequest) -> dict[str, object]:
     }
 
 
+async def build_activity_analysis_prompt(activity_id: str) -> str:
+    async with get_db() as conn:
+        activity = await get_activity(conn, activity_id)
+        if not activity:
+            raise HTTPException(status_code=404, detail="Activity not found")
+        recent = await get_activities(conn, limit=10, offset=0)
+        settings = await get_settings(conn)
+        health_states = (await get_health_states(conn))[:3]
+        return build_prompt(activity, recent, settings, health_states)
+
+
+@router.get("/ai/analyze/prompt")
+async def get_activity_analysis_prompt(activity_id: str) -> dict[str, object]:
+    return {
+        "activity_id": activity_id,
+        "prompt": await build_activity_analysis_prompt(activity_id),
+    }
+
+
 @router.get("/ai/analyze/stream")
 async def analyze_stream(activity_id: str) -> StreamingResponse:
     return StreamingResponse(
@@ -89,14 +109,11 @@ async def analyze_stream(activity_id: str) -> StreamingResponse:
 
 
 async def _analysis_stream(activity_id: str):
-    async with get_db() as conn:
-        activity = await get_activity(conn, activity_id)
-        if not activity:
-            yield f"data: {json.dumps({'error': 'Activity not found'}, ensure_ascii=False)}\n\n"
-            return
-        recent = await get_activities(conn, limit=10, offset=0)
-        settings = await get_settings(conn)
-        prompt = build_prompt(activity, recent, settings)
+    try:
+        prompt = await build_activity_analysis_prompt(activity_id)
+    except HTTPException:
+        yield f"data: {json.dumps({'error': 'Activity not found'}, ensure_ascii=False)}\n\n"
+        return
 
     full_text: list[str] = []
 
@@ -168,7 +185,13 @@ def _render_template(template: str, values: dict[str, object]) -> str:
     return template.format_map(_SafeDict(normalized))
 
 
-def build_prompt(activity: dict, recent: list[dict], settings: dict[str, str]) -> str:
+def build_prompt(
+    activity: dict,
+    recent: list[dict],
+    settings: dict[str, str],
+    health_states: list[dict] | None = None,
+    current_date: str | None = None,
+) -> str:
     def fmt_pace(seconds):
         if not seconds:
             return "—"
@@ -204,9 +227,11 @@ def build_prompt(activity: dict, recent: list[dict], settings: dict[str, str]) -
             for run in recent
         ]
     )
-    return _render_template(
+    resolved_current_date = current_date or datetime.now(timezone.utc).date().isoformat()
+    rendered_prompt = _render_template(
         settings["activity_prompt_template"],
         {
+            "current_date": resolved_current_date,
             "activity_date": activity["date"][:10],
             "activity_distance_km": activity.get("distance_km"),
             "activity_avg_hrm": activity.get("avg_hrm"),
@@ -217,8 +242,38 @@ def build_prompt(activity: dict, recent: list[dict], settings: dict[str, str]) -
             "activity_recover_time": activity.get("recover_time"),
             "activity_zones": fmt_zones(activity),
             "recent_lines": recent_lines,
+            "health_lines": format_health_lines(health_states or []),
         },
     )
+    if "{health_lines}" in settings["activity_prompt_template"]:
+        return rendered_prompt
+
+    health_lines = format_health_lines(health_states or [])
+    if health_lines == "нет записей":
+        return rendered_prompt
+    return f"{rendered_prompt}\n\nТекущая дата: {resolved_current_date}\n\nПоследние записи о здоровье:\n{health_lines}"
+
+
+def format_health_lines(health_states: list[dict]) -> str:
+    if not health_states:
+        return "нет записей"
+
+    lines = []
+    for index, state in enumerate(health_states[:3], start=1):
+        started_at = str(state.get("started_at") or "—")
+        ended_at = str(state.get("ended_at") or "сейчас")
+        description = str(state.get("description") or "").strip()
+        if not description:
+            continue
+        description_lines = "\n".join(
+            f"    {line.strip()}" if line.strip() else ""
+            for line in description.splitlines()
+        )
+        lines.append(
+            f"{index}. Период: {started_at} — {ended_at}\n"
+            f"   Описание:\n{description_lines}"
+        )
+    return "\n".join(lines) if lines else "нет записей"
 
 
 def build_daily_prompt(activities: list[dict], settings: dict[str, str]) -> str:
@@ -481,6 +536,14 @@ async def generate_daily_recommendation(sync_id: int | None = None) -> dict[str,
         return {"status": status, "message": message}
     except Exception as exc:
         return {"status": "run", "message": f"Не удалось получить анализ: {exc}"}
+
+
+@router.get("/ai/recommendation/prompt")
+async def get_daily_recommendation_prompt() -> dict[str, object]:
+    async with get_db() as conn:
+        activities = await get_activities(conn, limit=10, offset=0)
+        settings = await get_settings(conn)
+    return {"prompt": build_daily_prompt(activities, settings)}
 
 
 @router.get("/ai/recommendation")

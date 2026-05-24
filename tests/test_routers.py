@@ -216,6 +216,17 @@ async def test_activities_list_empty(test_client):
 
 
 @pytest.mark.asyncio
+async def test_dashboard_embeds_card_visibility_settings(test_client):
+    client, _ = test_client
+
+    response = await client.get("/")
+
+    assert response.status_code == 200
+    assert "dashboard_card_progress" in response.text
+    assert 'data-dashboard-card="progress"' in response.text
+
+
+@pytest.mark.asyncio
 async def test_activities_list_includes_has_details_flag(test_client):
     client, db_path = test_client
     conn = await connect_db(str(db_path))
@@ -265,6 +276,69 @@ async def test_activity_detail_page_renders_activity(test_client):
     assert response.status_code == 200
     assert "Пробежка" in response.text
     assert "activity-data" in response.text
+
+
+@pytest.mark.asyncio
+async def test_health_page_renders(test_client):
+    client, _ = test_client
+
+    response = await client.get("/health")
+
+    assert response.status_code == 200
+    assert "Журнал состояния" in response.text
+    assert "health-list" in response.text
+
+
+@pytest.mark.asyncio
+async def test_health_states_api_crud(test_client):
+    client, _ = test_client
+
+    create_response = await client.post(
+        "/api/health-states",
+        json={
+            "description": "Болят стопы после пробежки",
+            "started_at": "2026-05-24",
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()["state"]
+    assert created["description"] == "Болят стопы после пробежки"
+    assert created["ended_at"] is None
+
+    list_response = await client.get("/api/health-states")
+    assert list_response.status_code == 200
+    assert [state["id"] for state in list_response.json()["states"]] == [created["id"]]
+
+    update_response = await client.put(
+        f"/api/health-states/{created['id']}",
+        json={
+            "description": "Стопы лучше, но ноют колени",
+            "started_at": "2026-05-24",
+            "ended_at": "2026-05-25",
+        },
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["state"]["ended_at"] == "2026-05-25"
+
+    delete_response = await client.delete(f"/api/health-states/{created['id']}")
+    assert delete_response.status_code == 200
+    assert (await client.get("/api/health-states")).json()["states"] == []
+
+
+@pytest.mark.asyncio
+async def test_health_states_reject_end_before_start(test_client):
+    client, _ = test_client
+
+    response = await client.post(
+        "/api/health-states",
+        json={
+            "description": "Проверка периода",
+            "started_at": "2026-05-24",
+            "ended_at": "2026-05-23",
+        },
+    )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

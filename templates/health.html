@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Журнал состояния{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <span class="card-title">Журнал состояния</span>
+        <div class="card-hint">Самочувствие, боль и восстановление по периодам</div>
+      </div>
+      <button class="btn btn-primary" type="button" onclick="openHealthStateDialog()">Добавить</button>
+    </div>
+    <div id="health-status" class="card-hint"></div>
+    <div id="health-list" class="health-list"></div>
+  </div>
+</div>
+
+<div id="health-modal" class="modal-overlay" style="display:none" onclick="closeHealthStateDialog(event)">
+  <div class="modal-card modal-card--narrow" role="dialog" aria-modal="true" aria-labelledby="health-modal-title">
+    <div class="card-header">
+      <span class="card-title" id="health-modal-title">Новое состояние</span>
+      <button class="btn btn-secondary" type="button" onclick="closeHealthStateDialog()">Закрыть</button>
+    </div>
+    <form class="health-form" onsubmit="saveHealthState(event)">
+      <input type="hidden" id="health-state-id">
+      <label class="settings-field">
+        <span class="settings-label">Описание</span>
+        <textarea id="health-description" class="settings-textarea health-textarea" required></textarea>
+      </label>
+      <div class="health-form-grid">
+        <label class="settings-field">
+          <span class="settings-label">Начало</span>
+          <input id="health-started-at" class="settings-input health-input" type="date" required>
+        </label>
+        <label class="settings-field" id="health-ended-field">
+          <span class="settings-label">Завершение</span>
+          <input id="health-ended-at" class="settings-input health-input" type="date">
+        </label>
+      </div>
+      <div id="health-form-error" class="alert alert-danger" style="display:none"></div>
+      <div class="health-actions">
+        <button class="btn btn-primary" type="submit">Сохранить</button>
+        <button class="btn" type="button" onclick="closeHealthStateDialog()">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', () => initHealthPage());
+</script>
+{% endblock %}

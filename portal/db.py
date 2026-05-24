@@ -87,6 +87,15 @@ CREATE TABLE IF NOT EXISTS monthly_goals (
     ai_suggestion TEXT,
     UNIQUE(year, month)
 );
+
+CREATE TABLE IF NOT EXISTS health_states (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT NOT NULL,
+    started_at  TEXT NOT NULL,
+    ended_at    TEXT,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
 """
 
 DEFAULT_SETTINGS: dict[str, str] = {
@@ -117,6 +126,8 @@ DEFAULT_SETTINGS: dict[str, str] = {
 
 Бегун восстанавливается после травмы ступней и голеностопа. Цель: войти в ритм, бегать регулярно. Недавно купил новые кроссовки 361 KAIROS 2 (стек 34мм, перепад 8мм) — первые недели в них.
 
+Текущая дата: {current_date}
+
 Пробежка {activity_date}:
 - Дистанция: {activity_distance_km} км
 - Пульс: {activity_avg_hrm} уд/мин
@@ -130,9 +141,18 @@ DEFAULT_SETTINGS: dict[str, str] = {
 Последние 10 пробежек:
 {recent_lines}
 
+Последние записи о здоровье:
+{health_lines}
+
 Дай короткий анализ этой пробежки и одну конкретную рекомендацию на следующую тренировку.""",
     "target_hr_zone_low": "140",
     "target_hr_zone_high": "160",
+    "dashboard_card_today": "true",
+    "dashboard_card_metrics": "true",
+    "dashboard_card_progress": "true",
+    "dashboard_card_goal": "true",
+    "dashboard_card_distance": "true",
+    "dashboard_card_runs": "true",
 }
 
 ACTIVITY_COLUMNS = (
@@ -204,6 +224,7 @@ async def init_db(db_path: str) -> None:
                 """,
                 (key, value, utc_now_iso()),
             )
+        await migrate_activity_prompt_template(conn)
         await conn.commit()
 
 
@@ -213,6 +234,38 @@ async def connect_db(db_path: str) -> aiosqlite.Connection:
     await _configure_fast_test_sqlite(conn)
     await conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+async def migrate_activity_prompt_template(conn: aiosqlite.Connection) -> None:
+    cursor = await conn.execute("SELECT value FROM settings WHERE key = ?", ("activity_prompt_template",))
+    row = await cursor.fetchone()
+    if row is None:
+        return
+
+    template = str(row["value"] if isinstance(row, aiosqlite.Row) else row[0])
+    if "{health_lines}" in template and "{current_date}" in template:
+        return
+
+    updated = template
+    if "{current_date}" not in updated:
+        updated = f"Текущая дата: {{current_date}}\n\n{updated}"
+    if "{health_lines}" not in updated:
+        marker = "Последние 10 пробежек:\n{recent_lines}"
+        health_block = "Последние записи о здоровье:\n{health_lines}"
+        if marker in updated:
+            updated = updated.replace(marker, f"{marker}\n\n{health_block}", 1)
+        else:
+            updated = f"{updated.rstrip()}\n\n{health_block}"
+
+    await conn.execute(
+        """
+        UPDATE settings
+        SET value = ?,
+            updated_at = ?
+        WHERE key = ?
+        """,
+        (updated, utc_now_iso(), "activity_prompt_template"),
+    )
 
 
 async def upsert_activity(conn: aiosqlite.Connection, activity_dict: dict[str, Any]) -> None:
@@ -490,3 +543,69 @@ async def get_monthly_progress(conn: aiosqlite.Connection, year: int, month: int
         "runs_count": int(row["runs_count"] or 0),
         "total_km": round(float(row["total_km"] or 0), 2),
     }
+
+
+async def get_health_states(conn: aiosqlite.Connection) -> list[dict[str, Any]]:
+    cursor = await conn.execute(
+        """
+        SELECT * FROM health_states
+        ORDER BY started_at DESC, id DESC
+        """
+    )
+    rows = await cursor.fetchall()
+    return [dict(row) for row in rows]
+
+
+async def get_health_state(conn: aiosqlite.Connection, state_id: int) -> dict[str, Any] | None:
+    cursor = await conn.execute("SELECT * FROM health_states WHERE id = ?", (state_id,))
+    row = await cursor.fetchone()
+    return _row_to_dict(row)
+
+
+async def create_health_state(
+    conn: aiosqlite.Connection,
+    description: str,
+    started_at: str,
+    ended_at: str | None = None,
+) -> dict[str, Any]:
+    now = utc_now_iso()
+    cursor = await conn.execute(
+        """
+        INSERT INTO health_states (description, started_at, ended_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (description, started_at, ended_at, now, now),
+    )
+    await conn.commit()
+    state = await get_health_state(conn, int(cursor.lastrowid))
+    if state is None:
+        raise RuntimeError("created health state is missing")
+    return state
+
+
+async def update_health_state(
+    conn: aiosqlite.Connection,
+    state_id: int,
+    description: str,
+    started_at: str,
+    ended_at: str | None,
+) -> dict[str, Any] | None:
+    await conn.execute(
+        """
+        UPDATE health_states
+        SET description = ?,
+            started_at = ?,
+            ended_at = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (description, started_at, ended_at, utc_now_iso(), state_id),
+    )
+    await conn.commit()
+    return await get_health_state(conn, state_id)
+
+
+async def delete_health_state(conn: aiosqlite.Connection, state_id: int) -> bool:
+    cursor = await conn.execute("DELETE FROM health_states WHERE id = ?", (state_id,))
+    await conn.commit()
+    return cursor.rowcount > 0

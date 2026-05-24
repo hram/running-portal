@@ -4,12 +4,15 @@ let efChart = null;
 let efDetailChart = null;
 let scatterChart = null;
 let scatterDataCache = null;
+let healthStatesCache = [];
 let currentActivity = null;
 let currentDetails = null;
 let currentSettings = null;
 let currentChartMode = "time";
 let runsPage = 0;
+let analysisRequestActive = false;
 const RUNS_PAGE_SIZE = 10;
+const DASHBOARD_CARD_KEYS = ["today", "metrics", "progress", "goal", "distance", "runs"];
 
 function pickRenderableDetails(details) {
   if (!details) {
@@ -104,6 +107,16 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function renderLimitedMarkdown(value) {
+  return escapeHtml(value).replace(/\*\*(.+?)\*\*/gs, "<strong>$1</strong>");
+}
+
+function setAiResultText(element, text) {
+  if (element) {
+    element.innerHTML = renderLimitedMarkdown(text);
+  }
+}
+
 async function triggerSync() {
   const status = document.getElementById("sync-status");
   const button = document.getElementById("sync-btn");
@@ -171,6 +184,49 @@ function formatShortDate(isoString) {
   }).format(new Date(isoString));
 }
 
+function formatDateTime(isoString) {
+  if (!isoString) {
+    return "—";
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(isoString))) {
+    return new Intl.DateTimeFormat("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(new Date(`${isoString}T00:00:00`));
+  }
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(isoString));
+}
+
+function toDateInputValue(date = new Date()) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function normalizeDateInputValue(value) {
+  return value || null;
+}
+
+function toDateInputValueFromStored(value) {
+  if (!value) {
+    return "";
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
+    return value;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value).slice(0, 10);
+  }
+  return toDateInputValue(date);
+}
+
 function hrColor(hr) {
   if (hr === null || hr === undefined) {
     return "var(--text2)";
@@ -202,17 +258,254 @@ function metricCard(label, value, subtext = "") {
 }
 
 async function initDashboard() {
-  await loadTodayRecommendation();
-  const response = await fetch("/api/activities?limit=100");
-  const payload = await response.json();
-  const activities = payload.activities || [];
+  loadPageSettings();
+  applyDashboardCardVisibility();
 
-  renderDashboardMetrics(activities);
-  renderDashboardAlerts(activities);
-  await renderProgressCard();
-  await renderGoalCard();
-  renderDistanceChart(buildDailyDistanceSeries(activities.slice(0, 20).reverse()));
-  await loadRunsPage(0);
+  if (isDashboardCardEnabled("today")) {
+    await loadTodayRecommendation();
+  }
+
+  const needsActivities = isDashboardCardEnabled("metrics") || isDashboardCardEnabled("distance");
+  let activities = [];
+  let healthStates = [];
+  if (needsActivities) {
+    const [activitiesResponse, healthResponse] = await Promise.all([
+      fetch("/api/activities?limit=100"),
+      isDashboardCardEnabled("distance") ? fetch("/api/health-states") : Promise.resolve(null),
+    ]);
+    const payload = await activitiesResponse.json();
+    activities = payload.activities || [];
+    if (healthResponse) {
+      const healthPayload = await healthResponse.json();
+      healthStates = healthPayload.states || [];
+    }
+  }
+
+  if (isDashboardCardEnabled("metrics")) {
+    renderDashboardMetrics(activities);
+    renderDashboardAlerts(activities);
+  }
+  if (isDashboardCardEnabled("progress")) {
+    await renderProgressCard();
+  }
+  if (isDashboardCardEnabled("goal")) {
+    await renderGoalCard();
+  }
+  if (isDashboardCardEnabled("distance")) {
+    renderDistanceChart(buildDailyDistanceSeries(activities.slice(0, 20).reverse()), healthStates);
+  }
+  if (isDashboardCardEnabled("runs")) {
+    await loadRunsPage(0);
+  }
+}
+
+function loadPageSettings() {
+  const settingsScript = document.getElementById("settings-data");
+  if (settingsScript) {
+    currentSettings = JSON.parse(settingsScript.textContent);
+  }
+}
+
+function settingIsEnabled(key, fallback = true) {
+  const value = currentSettings?.[key];
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  return value === true || value === "true" || value === "1";
+}
+
+function isDashboardCardEnabled(cardName) {
+  return settingIsEnabled(`dashboard_card_${cardName}`);
+}
+
+function applyDashboardCardVisibility() {
+  DASHBOARD_CARD_KEYS.forEach((cardName) => {
+    const element = document.querySelector(`[data-dashboard-card="${cardName}"]`);
+    if (element) {
+      element.hidden = !isDashboardCardEnabled(cardName);
+    }
+  });
+}
+
+async function initHealthPage() {
+  await loadHealthStates();
+}
+
+async function loadHealthStates() {
+  const list = document.getElementById("health-list");
+  const status = document.getElementById("health-status");
+  if (!list) {
+    return;
+  }
+  if (status) {
+    status.textContent = "Загрузка...";
+  }
+
+  try {
+    const states = await fetchHealthStates();
+    if (status) {
+      status.textContent = states.length ? "" : "Записей пока нет";
+    }
+    renderHealthStates(states);
+  } catch (error) {
+    if (status) {
+      status.textContent = `Ошибка: ${error.message}`;
+    }
+  }
+}
+
+async function fetchHealthStates() {
+  const response = await fetch("/api/health-states");
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.detail || "Не удалось загрузить журнал");
+  }
+  return payload.states || [];
+}
+
+function renderHealthStates(states) {
+  const list = document.getElementById("health-list");
+  if (!list) {
+    return;
+  }
+  healthStatesCache = states;
+  if (!states.length) {
+    list.innerHTML = "";
+    return;
+  }
+  list.innerHTML = states.map((state) => {
+    const isActive = !state.ended_at;
+    return `
+      <article class="health-item ${isActive ? "health-item--active" : ""}">
+        <div class="health-item-main">
+          <div class="health-period">
+            <span>${formatDateTime(state.started_at)}</span>
+            <span class="health-period-separator">-</span>
+            <span>${state.ended_at ? formatDateTime(state.ended_at) : "сейчас"}</span>
+            ${isActive ? '<span class="goal-badge goal-badge--warn">активно</span>' : ""}
+          </div>
+          <div class="health-description">${escapeHtml(state.description)}</div>
+        </div>
+        <div class="health-item-actions">
+          <button class="table-action-btn" type="button" onclick="openHealthStateDialogById(${state.id})">Изменить</button>
+          <button class="table-action-btn table-action-btn--danger" type="button" onclick="deleteHealthState(${state.id})">Удалить</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+function openHealthStateDialogById(id) {
+  const state = healthStatesCache.find((item) => Number(item.id) === Number(id));
+  if (state) {
+    openHealthStateDialog(state);
+  }
+}
+
+function openHealthStateDialog(state = null) {
+  const modal = document.getElementById("health-modal");
+  const title = document.getElementById("health-modal-title");
+  const idInput = document.getElementById("health-state-id");
+  const description = document.getElementById("health-description");
+  const startedAt = document.getElementById("health-started-at");
+  const endedAt = document.getElementById("health-ended-at");
+  const endedField = document.getElementById("health-ended-field");
+  const error = document.getElementById("health-form-error");
+  if (!modal || !title || !idInput || !description || !startedAt || !endedAt) {
+    return;
+  }
+
+  title.textContent = state ? "Редактировать состояние" : "Новое состояние";
+  idInput.value = state?.id || "";
+  description.value = state?.description || "";
+  startedAt.value = state?.started_at ? toDateInputValueFromStored(state.started_at) : toDateInputValue();
+  endedAt.value = state?.ended_at ? toDateInputValueFromStored(state.ended_at) : "";
+  if (endedField) {
+    endedField.hidden = !state;
+  }
+  if (error) {
+    error.style.display = "none";
+    error.textContent = "";
+  }
+  modal.style.display = "flex";
+  description.focus();
+}
+
+function closeHealthStateDialog(event) {
+  const modal = document.getElementById("health-modal");
+  if (!modal) {
+    return;
+  }
+  if (event && event.target !== modal) {
+    return;
+  }
+  modal.style.display = "none";
+}
+
+async function saveHealthState(event) {
+  event.preventDefault();
+  const id = document.getElementById("health-state-id")?.value;
+  const description = document.getElementById("health-description")?.value.trim();
+  const startedAt = document.getElementById("health-started-at")?.value;
+  const endedAt = document.getElementById("health-ended-at")?.value;
+  const error = document.getElementById("health-form-error");
+
+  if (error) {
+    error.style.display = "none";
+    error.textContent = "";
+  }
+  if (!description || !startedAt) {
+    if (error) {
+      error.textContent = "Заполни описание и дату начала";
+      error.style.display = "flex";
+    }
+    return;
+  }
+
+  const payload = {
+    description,
+    started_at: normalizeDateInputValue(startedAt),
+    ended_at: normalizeDateInputValue(endedAt),
+  };
+  if (payload.ended_at && payload.ended_at < payload.started_at) {
+    if (error) {
+      error.textContent = "Дата завершения не может быть раньше даты начала";
+      error.style.display = "flex";
+    }
+    return;
+  }
+
+  try {
+    const response = await fetch(id ? `/api/health-states/${id}` : "/api/health-states", {
+      method: id ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.detail || "Не удалось сохранить запись");
+    }
+    closeHealthStateDialog();
+    await loadHealthStates();
+  } catch (err) {
+    if (error) {
+      error.textContent = err.message;
+      error.style.display = "flex";
+    }
+  }
+}
+
+async function deleteHealthState(id) {
+  if (!window.confirm("Удалить запись из журнала?")) {
+    return;
+  }
+  const response = await fetch(`/api/health-states/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    const payload = await response.json();
+    window.alert(payload.detail || "Не удалось удалить запись");
+    return;
+  }
+  await loadHealthStates();
 }
 
 function goalStatusBadge(status) {
@@ -612,6 +905,109 @@ function closeScatterModal(event) {
   modal.style.display = "none";
 }
 
+function openPromptModal(title, promptText) {
+  const modal = document.getElementById("prompt-modal");
+  const titleEl = document.getElementById("prompt-modal-title");
+  const textEl = document.getElementById("prompt-modal-text");
+  const copyBtn = document.getElementById("prompt-copy-btn");
+  if (!modal || !titleEl || !textEl) {
+    return;
+  }
+  titleEl.textContent = title;
+  textEl.textContent = promptText || "Промпт пустой";
+  if (copyBtn) {
+    copyBtn.textContent = "Копировать";
+  }
+  modal.style.display = "flex";
+}
+
+function closePromptModal(event) {
+  const modal = document.getElementById("prompt-modal");
+  if (!modal) {
+    return;
+  }
+  if (event && event.target !== modal) {
+    return;
+  }
+  modal.style.display = "none";
+}
+
+function setAnalysisMode(hasAnalysis, cached = false) {
+  const getBtn = document.getElementById("get-analysis-btn");
+  const refreshBtn = document.getElementById("refresh-btn");
+  const cachedBadge = document.getElementById("ai-cached-badge");
+
+  if (getBtn) {
+    getBtn.style.display = hasAnalysis ? "none" : "inline-block";
+  }
+  if (refreshBtn) {
+    refreshBtn.style.display = hasAnalysis ? "inline-block" : "none";
+  }
+  if (cachedBadge) {
+    cachedBadge.style.display = cached ? "inline-block" : "none";
+  }
+}
+
+async function showPromptFromUrl(url, title) {
+  openPromptModal(title, "Загрузка...");
+  try {
+    const response = await fetch(url);
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.detail || payload.error || "Не удалось загрузить промпт");
+    }
+    openPromptModal(title, payload.prompt || "");
+  } catch (error) {
+    openPromptModal(title, `Ошибка: ${error.message}`);
+  }
+}
+
+async function copyPromptText() {
+  const textEl = document.getElementById("prompt-modal-text");
+  const copyBtn = document.getElementById("prompt-copy-btn");
+  if (!textEl) {
+    return;
+  }
+  const text = textEl.textContent || "";
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }
+    if (copyBtn) {
+      copyBtn.textContent = "Скопировано";
+    }
+  } catch (error) {
+    if (copyBtn) {
+      copyBtn.textContent = "Ошибка";
+    }
+  }
+}
+
+async function showTodayPrompt() {
+  await showPromptFromUrl("/api/ai/recommendation/prompt", "Промпт рекомендации на сегодня");
+}
+
+async function showActivityPrompt() {
+  const activityId = document.getElementById("activity-id")?.value;
+  if (!activityId) {
+    return;
+  }
+  await showPromptFromUrl(
+    `/api/ai/analyze/prompt?activity_id=${encodeURIComponent(activityId)}`,
+    "Промпт анализа тренировки",
+  );
+}
+
 function renderScatterChart(scatterData) {
   const canvas = document.getElementById("scatter-chart");
   if (!canvas || !window.Chart) {
@@ -866,7 +1262,7 @@ function renderDashboardAlerts(activities) {
     .join("");
 }
 
-function renderDistanceChart(activities) {
+function renderDistanceChart(activities, healthStates = []) {
   const canvas = document.getElementById("dist-chart");
   if (!canvas || !window.Chart) {
     return;
@@ -877,6 +1273,8 @@ function renderDistanceChart(activities) {
   }
 
   const labels = activities.map((item) => formatShortDate(item.date));
+  const maxDistance = Math.max(1, ...activities.map((item) => Number(item.distance_km || 0)));
+  const healthMarkers = buildHealthMarkersForDistanceChart(activities, healthStates, maxDistance);
   const visibleTickIndexes = new Set();
   activities.forEach((item, index) => {
     if (item.showTick) {
@@ -899,6 +1297,21 @@ function renderDistanceChart(activities) {
           barPercentage: 0.92,
           categoryPercentage: 0.98,
         },
+        {
+          type: "line",
+          label: "Состояние",
+          data: healthMarkers.map((item) => item ? item.y : null),
+          healthMarkers,
+          showLine: false,
+          pointStyle: "triangle",
+          pointRadius: healthMarkers.map((item) => item ? 6 : 0),
+          pointHoverRadius: healthMarkers.map((item) => item ? 8 : 0),
+          pointRotation: 180,
+          pointBackgroundColor: "#a04040",
+          pointBorderColor: "#a04040",
+          pointBorderWidth: 1,
+          borderWidth: 0,
+        },
       ],
     },
     options: {
@@ -906,6 +1319,23 @@ function renderDistanceChart(activities) {
       maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label(context) {
+              if (context.dataset.healthMarkers) {
+                const marker = context.dataset.healthMarkers[context.dataIndex];
+                if (!marker) {
+                  return "";
+                }
+                return [
+                  "Проблема со здоровьем",
+                  ...marker.descriptions.map((text) => `- ${text}`),
+                ];
+              }
+              return `Дистанция: ${Number(context.raw || 0).toFixed(2)} км`;
+            },
+          },
+        },
       },
       scales: {
         x: {
@@ -920,9 +1350,42 @@ function renderDistanceChart(activities) {
           },
           grid: { display: false },
         },
-        y: { ticks: { color: "#9b9b96" }, grid: { color: "rgba(255,255,255,0.08)" } },
+        y: {
+          suggestedMax: maxDistance * 1.25,
+          ticks: { color: "#9b9b96" },
+          grid: { color: "rgba(255,255,255,0.08)" },
+        },
       },
     },
+  });
+}
+
+function buildHealthMarkersForDistanceChart(activities, healthStates, maxDistance) {
+  if (!activities.length || !healthStates.length) {
+    return activities.map(() => null);
+  }
+
+  const chartStart = dateKey(activities[0].date);
+  const chartEnd = dateKey(activities[activities.length - 1].date);
+  const markerY = maxDistance * 1.12;
+  return activities.map((activity) => {
+    const activityKey = dateKey(activity.date);
+    const descriptions = healthStates
+      .filter((state) => {
+        const startedAt = dateKey(state.started_at);
+        const endedAt = dateKey(state.ended_at) || todayDateKey();
+        return startedAt <= chartEnd && endedAt >= chartStart && activityKey >= startedAt && activityKey <= endedAt;
+      })
+      .map((state) => state.description)
+      .filter(Boolean);
+
+    if (!descriptions.length) {
+      return null;
+    }
+    return {
+      y: markerY,
+      descriptions,
+    };
   });
 }
 
@@ -1129,10 +1592,8 @@ async function initDetailPage(activityId) {
   if (!script) {
     return;
   }
-  const settingsScript = document.getElementById("settings-data");
-
   currentActivity = JSON.parse(script.textContent);
-  currentSettings = settingsScript ? JSON.parse(settingsScript.textContent) : null;
+  loadPageSettings();
   currentDetails = null;
 
   const activityDate = document.getElementById("detail-date-title");
@@ -1590,6 +2051,9 @@ async function refreshRecommendation() {
 }
 
 async function getAnalysis(forceRefresh = false) {
+  if (analysisRequestActive) {
+    return;
+  }
   const activityId = document.getElementById("activity-id")?.value;
   if (!activityId) {
     return;
@@ -1597,35 +2061,57 @@ async function getAnalysis(forceRefresh = false) {
 
   const resultEl = document.getElementById("ai-result");
   const loadingEl = document.getElementById("ai-loading");
+  const loadingTextEl = document.getElementById("ai-loading-text");
   const controlsEl = document.getElementById("ai-controls");
-  const cachedBadge = document.getElementById("ai-cached-badge");
-  const refreshBtn = document.getElementById("refresh-btn");
 
-  if (!resultEl || !loadingEl || !controlsEl || !cachedBadge || !refreshBtn) {
+  if (!resultEl || !loadingEl || !loadingTextEl || !controlsEl) {
     return;
   }
 
+  analysisRequestActive = true;
+  controlsEl.querySelectorAll("button").forEach((button) => {
+    button.disabled = true;
+  });
+  loadingEl.style.display = "block";
+  loadingTextEl.textContent = forceRefresh ? "Готовлю новый анализ..." : "Проверяю сохранённый анализ...";
+  setAnalysisMode(false, false);
+
   if (!forceRefresh) {
-    const res = await fetch("/api/ai/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ activity_id: activityId, force_refresh: false }),
-    });
-    const data = await res.json();
-    if (data.cached && data.analysis) {
-      resultEl.textContent = data.analysis;
+    try {
+      const res = await fetch("/api/ai/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activity_id: activityId, force_refresh: false }),
+      });
+      const data = await res.json();
+      if (data.cached && data.analysis) {
+        setAiResultText(resultEl, data.analysis);
+        resultEl.style.display = "block";
+        setAnalysisMode(true, true);
+        loadingEl.style.display = "none";
+        controlsEl.querySelectorAll("button").forEach((button) => {
+          button.disabled = false;
+        });
+        analysisRequestActive = false;
+        return;
+      }
+    } catch (error) {
+      setAiResultText(resultEl, `Ошибка: ${error.message}`);
       resultEl.style.display = "block";
-      cachedBadge.style.display = "inline-block";
-      refreshBtn.style.display = "inline-block";
+      loadingEl.style.display = "none";
+      controlsEl.querySelectorAll("button").forEach((button) => {
+        button.disabled = false;
+      });
+      analysisRequestActive = false;
       return;
     }
   }
 
-  resultEl.textContent = "";
+  setAiResultText(resultEl, "");
   resultEl.style.display = "block";
   loadingEl.style.display = "block";
-  controlsEl.style.display = "none";
-  cachedBadge.style.display = "none";
+  loadingTextEl.textContent = "Тренер анализирует...";
+  setAnalysisMode(false, false);
 
   const url = `/api/ai/analyze/stream?activity_id=${encodeURIComponent(activityId)}`;
   const source = new EventSource(url);
@@ -1633,27 +2119,36 @@ async function getAnalysis(forceRefresh = false) {
   source.onmessage = (event) => {
     const data = JSON.parse(event.data);
     if (data.error) {
-      resultEl.textContent = "Ошибка: " + data.error;
+      setAiResultText(resultEl, "Ошибка: " + data.error);
       loadingEl.style.display = "none";
-      controlsEl.style.display = "block";
+      controlsEl.querySelectorAll("button").forEach((button) => {
+        button.disabled = false;
+      });
+      analysisRequestActive = false;
       source.close();
       return;
     }
     if (data.chunk) {
-      resultEl.textContent += data.chunk;
+      setAiResultText(resultEl, `${resultEl.textContent}${data.chunk}`);
     }
     if (data.done) {
       loadingEl.style.display = "none";
-      controlsEl.style.display = "block";
-      refreshBtn.style.display = "inline-block";
+      setAnalysisMode(true, false);
+      controlsEl.querySelectorAll("button").forEach((button) => {
+        button.disabled = false;
+      });
+      analysisRequestActive = false;
       source.close();
     }
   };
 
   source.onerror = () => {
     loadingEl.style.display = "none";
-    controlsEl.style.display = "block";
-    resultEl.textContent += "\n[Соединение прервано]";
+    controlsEl.querySelectorAll("button").forEach((button) => {
+      button.disabled = false;
+    });
+    analysisRequestActive = false;
+    setAiResultText(resultEl, `${resultEl.textContent}\n[Соединение прервано]`);
     source.close();
   };
 }
@@ -1661,10 +2156,8 @@ async function getAnalysis(forceRefresh = false) {
 async function loadCachedAnalysis() {
   const activityId = document.getElementById("activity-id")?.value;
   const resultEl = document.getElementById("ai-result");
-  const cachedBadge = document.getElementById("ai-cached-badge");
-  const refreshBtn = document.getElementById("refresh-btn");
 
-  if (!activityId || !resultEl || !cachedBadge || !refreshBtn) {
+  if (!activityId || !resultEl) {
     return;
   }
 
@@ -1676,13 +2169,15 @@ async function loadCachedAnalysis() {
     });
     const data = await res.json();
     if (data.cached && data.analysis) {
-      resultEl.textContent = data.analysis;
+      setAiResultText(resultEl, data.analysis);
       resultEl.style.display = "block";
-      cachedBadge.style.display = "inline-block";
-      refreshBtn.style.display = "inline-block";
+      setAnalysisMode(true, true);
+    } else {
+      setAnalysisMode(false, false);
     }
   } catch (error) {
     // Ignore cache lookup errors on initial page load.
+    setAnalysisMode(false, false);
   }
 }
 
@@ -1717,6 +2212,12 @@ async function saveSettings() {
         activity_prompt_template: activityPrompt.value,
         target_hr_zone_low: Number(zoneLow.value),
         target_hr_zone_high: Number(zoneHigh.value),
+        dashboard_card_today: document.getElementById("dashboard-card-today")?.checked ?? true,
+        dashboard_card_metrics: document.getElementById("dashboard-card-metrics")?.checked ?? true,
+        dashboard_card_progress: document.getElementById("dashboard-card-progress")?.checked ?? true,
+        dashboard_card_goal: document.getElementById("dashboard-card-goal")?.checked ?? true,
+        dashboard_card_distance: document.getElementById("dashboard-card-distance")?.checked ?? true,
+        dashboard_card_runs: document.getElementById("dashboard-card-runs")?.checked ?? true,
       }),
     });
     const payload = await response.json();
@@ -1736,6 +2237,10 @@ async function saveSettings() {
 window.triggerSync = triggerSync;
 window.openScatterModal = openScatterModal;
 window.closeScatterModal = closeScatterModal;
+window.closePromptModal = closePromptModal;
+window.copyPromptText = copyPromptText;
+window.showTodayPrompt = showTodayPrompt;
+window.showActivityPrompt = showActivityPrompt;
 window.loadDetail = loadDetail;
 window.switchChartMode = switchChartMode;
 window.getAnalysis = getAnalysis;

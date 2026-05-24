@@ -4,24 +4,29 @@
 
 {% block content %}
 <div class="page">
-  <div id="today-card" class="today-card today-card--loading">
+  <div id="today-card" class="today-card today-card--loading" data-dashboard-card="today">
     <div class="today-eyebrow">ответ на сегодня</div>
     <div class="today-row">
-      <div>
+      <div class="today-content">
         <div class="today-status" id="today-status">Загрузка...</div>
         <div class="today-message" id="today-message"></div>
       </div>
-      <button class="today-refresh" onclick="refreshRecommendation()">обновить</button>
+      <div class="today-actions">
+        <button class="today-refresh" onclick="showTodayPrompt()">промпт</button>
+        <button class="today-refresh" onclick="refreshRecommendation()">обновить</button>
+      </div>
     </div>
     <div class="today-meta" id="today-meta"></div>
   </div>
 
   <div id="alerts-section"></div>
 
-  <div class="section-label">Ключевые метрики</div>
-  <div class="metrics" id="metrics-grid"></div>
+  <div id="metrics-section" data-dashboard-card="metrics">
+    <div class="section-label">Ключевые метрики</div>
+    <div class="metrics" id="metrics-grid"></div>
+  </div>
 
-  <div class="card" id="progress-card">
+  <div class="card" id="progress-card" data-dashboard-card="progress">
     <div class="card-header">
       <span class="card-title">Прогресс формы</span>
       <span class="card-hint" id="progress-hint"></span>
@@ -44,7 +49,7 @@
     </div>
   </div>
 
-  <div class="card" id="goal-card">
+  <div class="card" id="goal-card" data-dashboard-card="goal">
     <div class="card-header">
       <span class="card-title" id="goal-card-title">Цель на месяц</span>
       <span id="goal-status-badge"></span>
@@ -52,7 +57,7 @@
     <div id="goal-content" class="goal-content"></div>
   </div>
 
-  <div class="card chart-card">
+  <div class="card chart-card" id="distance-card" data-dashboard-card="distance">
     <div class="card-header">
       <span class="card-title">Дистанции</span>
       <span class="card-hint">20 последних пробежек</span>
@@ -62,7 +67,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="runs-card" data-dashboard-card="runs">
     <div class="card-header">
       <span class="card-title">Последние пробежки</span>
       <button class="btn" type="button" id="load-all-details-btn" onclick="loadAllRunDetails()">Загрузить все детали</button>
@@ -105,6 +110,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script id="settings-data" type="application/json">{{ settings | tojson }}</script>
 <script>
   document.addEventListener('DOMContentLoaded', () => initDashboard());
 </script>

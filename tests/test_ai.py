@@ -11,7 +11,7 @@ from portal.db import connect_db, init_db, save_ai_analysis
 from portal.db import save_recommendation
 from portal.infrastructure import config
 from portal.main import app
-from portal.routers.ai import generate_goal_suggestion
+from portal.routers.ai import build_prompt, generate_goal_suggestion
 
 
 @pytest_asyncio.fixture
@@ -69,9 +69,41 @@ async def test_analyze_returns_stream_url_when_no_cache(ai_client):
 
 
 @pytest.mark.asyncio
+async def test_get_activity_analysis_prompt(ai_client):
+    client, db_path = ai_client
+    conn = await connect_db(str(db_path))
+    try:
+        await conn.execute(
+            """
+            INSERT INTO health_states (description, started_at, ended_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("Болит левое колено", "2026-05-24", None, "2026-05-24T10:00:00", "2026-05-24T10:00:00"),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+    response = await client.get("/api/ai/analyze/prompt", params={"activity_id": "run-ai"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["activity_id"] == "run-ai"
+    assert "Последние записи о здоровье" in payload["prompt"]
+    assert "Болит левое колено" in payload["prompt"]
+
+
+@pytest.mark.asyncio
 async def test_analyze_returns_404_for_unknown_activity(ai_client):
     client, _ = ai_client
     response = await client.post("/api/ai/analyze", json={"activity_id": "missing", "force_refresh": False})
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_activity_analysis_prompt_returns_404_for_unknown_activity(ai_client):
+    client, _ = ai_client
+    response = await client.get("/api/ai/analyze/prompt", params={"activity_id": "missing"})
     assert response.status_code == 404
 
 
@@ -100,6 +132,16 @@ async def test_get_recommendation_returns_latest(ai_client):
 
 
 @pytest.mark.asyncio
+async def test_get_recommendation_prompt(ai_client):
+    client, _ = ai_client
+
+    response = await client.get("/api/ai/recommendation/prompt")
+
+    assert response.status_code == 200
+    assert "Последняя пробежка" in response.json()["prompt"]
+
+
+@pytest.mark.asyncio
 async def test_get_settings_returns_defaults(ai_client):
     client, _ = ai_client
     response = await client.get("/api/settings")
@@ -107,6 +149,7 @@ async def test_get_settings_returns_defaults(ai_client):
     payload = response.json()
     assert payload["target_hr_zone_low"] == "140"
     assert payload["target_hr_zone_high"] == "160"
+    assert payload["dashboard_card_progress"] == "true"
     assert "Ты персональный тренер" in payload["daily_prompt_template"]
 
 
@@ -120,6 +163,7 @@ async def test_post_settings_updates_values(ai_client):
             "activity_prompt_template": "activity {activity_date}",
             "target_hr_zone_low": 135,
             "target_hr_zone_high": 165,
+            "dashboard_card_progress": False,
         },
     )
     assert response.status_code == 200
@@ -129,6 +173,38 @@ async def test_post_settings_updates_values(ai_client):
     assert payload["settings"]["activity_prompt_template"] == "activity {activity_date}"
     assert payload["settings"]["target_hr_zone_low"] == "135"
     assert payload["settings"]["target_hr_zone_high"] == "165"
+    assert payload["settings"]["dashboard_card_progress"] == "false"
+
+
+def test_build_prompt_includes_latest_health_states():
+    activity = {
+        "date": "2026-05-24T05:14:01+00:00",
+        "distance_km": 3.17,
+        "avg_hrm": 150,
+        "avg_pace": 360,
+        "avg_cadence": 170,
+        "avg_stride": 90,
+        "train_load": 80,
+        "recover_time": 12,
+    }
+    settings = {"activity_prompt_template": "Пробежка {activity_date}\n{recent_lines}"}
+    health_states = [
+        {"started_at": "2026-05-24", "ended_at": None, "description": "Болит левое колено"},
+        {"started_at": "2026-05-20", "ended_at": "2026-05-22", "description": "Тянула спина"},
+        {"started_at": "2026-05-17", "ended_at": "2026-05-18", "description": "Болели стопы"},
+        {"started_at": "2026-05-10", "ended_at": "2026-05-11", "description": "Старая запись"},
+    ]
+
+    prompt = build_prompt(activity, [activity], settings, health_states, current_date="2026-05-24")
+
+    assert "Текущая дата: 2026-05-24" in prompt
+    assert "Последние записи о здоровье" in prompt
+    assert "1. Период: 2026-05-24 — сейчас" in prompt
+    assert "   Описание:\n    Болит левое колено" in prompt
+    assert "Болит левое колено" in prompt
+    assert "Тянула спина" in prompt
+    assert "Болели стопы" in prompt
+    assert "Старая запись" not in prompt
 
 
 @pytest.mark.asyncio

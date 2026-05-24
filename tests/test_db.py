@@ -14,7 +14,11 @@ from portal.db import (
     get_activities_for_ef,
     get_activity,
     get_detail,
+    create_health_state,
+    delete_health_state,
     get_ai_analysis,
+    get_health_state,
+    get_health_states,
     get_latest_recommendation,
     get_monthly_goal,
     get_monthly_progress,
@@ -25,6 +29,7 @@ from portal.db import (
     log_sync_start,
     save_recommendation,
     save_ai_analysis,
+    update_health_state,
     save_monthly_goal,
     save_setting,
     upsert_activity,
@@ -63,7 +68,7 @@ async def test_init_db_creates_all_tables():
             )
             names = {row[0] for row in await cursor.fetchall()}
 
-    assert {"activities", "activity_details", "sync_log", "settings"}.issubset(names)
+    assert {"activities", "activity_details", "sync_log", "settings", "health_states"}.issubset(names)
 
 
 @pytest.mark.asyncio
@@ -188,6 +193,36 @@ async def test_get_detail_returns_one_record_or_none(conn):
 
 
 @pytest.mark.asyncio
+async def test_health_state_crud(conn):
+    created = await create_health_state(
+        conn,
+        description="Болят колени после ходьбы",
+        started_at="2026-05-24",
+    )
+
+    assert created["id"]
+    assert created["description"] == "Болят колени после ходьбы"
+    assert created["ended_at"] is None
+    assert (await get_health_state(conn, created["id"]))["description"] == created["description"]
+
+    states = await get_health_states(conn)
+    assert [state["id"] for state in states] == [created["id"]]
+
+    updated = await update_health_state(
+        conn,
+        state_id=created["id"],
+        description="Колени отпустило, спина без изменений",
+        started_at="2026-05-24",
+        ended_at="2026-05-25",
+    )
+
+    assert updated is not None
+    assert updated["ended_at"] == "2026-05-25"
+    assert await delete_health_state(conn, created["id"]) is True
+    assert await get_health_state(conn, created["id"]) is None
+
+
+@pytest.mark.asyncio
 async def test_log_sync_start_and_finish_write_sync_log(conn):
     sync_id = await log_sync_start(conn)
     await log_sync_finish(conn, sync_id, added=3, updated=2, error=None)
@@ -251,14 +286,40 @@ async def test_get_settings_returns_defaults(conn):
     settings = await get_settings(conn)
     assert settings["daily_prompt_template"] == DEFAULT_SETTINGS["daily_prompt_template"]
     assert settings["activity_prompt_template"] == DEFAULT_SETTINGS["activity_prompt_template"]
+    assert "{current_date}" in settings["activity_prompt_template"]
+    assert "{health_lines}" in settings["activity_prompt_template"]
     assert settings["target_hr_zone_low"] == "140"
     assert settings["target_hr_zone_high"] == "160"
+    assert settings["dashboard_card_progress"] == "true"
 
 
 @pytest.mark.asyncio
 async def test_save_setting_updates_value(conn):
     await save_setting(conn, "target_hr_zone_low", "135")
     assert await get_setting(conn, "target_hr_zone_low") == "135"
+
+
+@pytest.mark.asyncio
+async def test_init_db_migrates_old_activity_prompt_template():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "schema.db"
+        await init_db(str(db_path))
+        conn = await connect_db(str(db_path))
+        try:
+            await save_setting(conn, "activity_prompt_template", "Пробежка {activity_date}\nПоследние 10 пробежек:\n{recent_lines}")
+        finally:
+            await conn.close()
+
+        await init_db(str(db_path))
+        conn = await connect_db(str(db_path))
+        try:
+            template = await get_setting(conn, "activity_prompt_template")
+        finally:
+            await conn.close()
+
+    assert template is not None
+    assert "{current_date}" in template
+    assert "{health_lines}" in template
 
 
 @pytest.mark.asyncio

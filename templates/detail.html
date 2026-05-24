@@ -24,11 +24,12 @@
     <input type="hidden" id="activity-id" value="{{ activity.activity_id }}">
     <div id="ai-result" class="ai-bubble" style="display:none"></div>
     <div id="ai-loading" style="display:none">
-      <span class="spinner"></span> Тренер анализирует...
+      <span class="spinner"></span><span id="ai-loading-text">Тренер анализирует...</span>
     </div>
     <div id="ai-controls">
-      <button class="btn btn-primary" type="button" onclick="getAnalysis()">Получить анализ</button>
-      <button class="btn" type="button" onclick="getAnalysis(true)" id="refresh-btn" style="display:none">Обновить</button>
+      <button class="btn btn-primary" type="button" onclick="getAnalysis()" id="get-analysis-btn">Получить анализ</button>
+      <button class="btn" type="button" onclick="showActivityPrompt()">Посмотреть промпт</button>
+      <button class="btn btn-primary" type="button" onclick="getAnalysis(true)" id="refresh-btn" style="display:none">Пересчитать анализ</button>
       <span id="ai-cached-badge" class="badge" style="display:none">из кэша</span>
     </div>
   </div>

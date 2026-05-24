@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from portal.db import connect_db, get_activity, get_settings, init_db, normalize_db_path
 from portal.infrastructure import config
-from portal.routers import activities, ai, assistant_manifest, auth, goals, settings, sync
+from portal.routers import activities, ai, assistant_manifest, auth, goals, health, settings, sync
 
 
 logging.basicConfig(level=logging.INFO)
@@ -46,6 +46,7 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(activities.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
 app.include_router(goals.router, prefix="/api")
+app.include_router(health.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(sync.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
@@ -55,7 +56,13 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "index.html", {})
+    conn = await connect_db(normalize_db_path(config.DB_PATH))
+    try:
+        settings_payload = await get_settings(conn)
+    finally:
+        await conn.close()
+
+    return templates.TemplateResponse(request, "index.html", {"settings": settings_payload})
 
 
 @app.get("/activity/{activity_id}", response_class=HTMLResponse)
@@ -95,3 +102,8 @@ async def settings_page(request: Request) -> HTMLResponse:
         "settings.html",
         {"settings": settings_payload},
     )
+
+
+@app.get("/health", response_class=HTMLResponse)
+async def health_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, "health.html", {})

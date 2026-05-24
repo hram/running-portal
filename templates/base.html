@@ -12,6 +12,7 @@
   <span class="nav-logo">Running Portal</span>
   <div class="nav-right">
     <a href="/" class="nav-link">Дашборд</a>
+    <a href="/health" class="nav-link">Состояние</a>
     <a href="/settings" class="nav-link">Настройки</a>
     <button class="nav-btn" onclick="triggerSync()">↻ Синхронизировать</button>
     <span id="sync-status"></span>
@@ -20,6 +21,18 @@
 <main>
   {% block content %}{% endblock %}
 </main>
+<div id="prompt-modal" class="modal-overlay" style="display:none" onclick="closePromptModal(event)">
+  <div class="modal-card prompt-modal-card" role="dialog" aria-modal="true" aria-labelledby="prompt-modal-title">
+    <div class="card-header">
+      <span class="card-title" id="prompt-modal-title">Промпт</span>
+      <div class="prompt-modal-actions">
+        <button class="btn" type="button" id="prompt-copy-btn" onclick="copyPromptText()">Копировать</button>
+        <button class="btn btn-secondary" type="button" onclick="closePromptModal()">Закрыть</button>
+      </div>
+    </div>
+    <pre id="prompt-modal-text" class="prompt-modal-text"></pre>
+  </div>
+</div>
 <script src="/static/app.js"></script>
 {% block scripts %}{% endblock %}
 </body>
