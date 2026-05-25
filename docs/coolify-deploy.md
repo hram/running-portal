@@ -11,7 +11,13 @@ Production runs from Git, not from the local development checkout.
 
 ## Persistent Data
 
-Create a persistent volume mounted to:
+Current prepared host path on `dev-server`:
+
+```text
+/home/hram/services/running-portal/data
+```
+
+Mount it inside the container to:
 
 ```text
 /data/running-portal
@@ -45,13 +51,19 @@ MI_FITNESS_PASSWORD=
 
 ## Initial Data Migration
 
-Before switching traffic to the Coolify service, copy current runtime data from the development machine to the server volume:
+Current runtime data was copied from the development machine to:
 
-```bash
-rsync -a /home/hram/.running_portal/ hram@192.168.1.72:/tmp/running-portal-data/
+```text
+/home/hram/services/running-portal/data
 ```
 
-Then move it into the Coolify volume path on `dev-server` after the volume exists.
+Original copy command:
+
+```bash
+rsync -a --delete /home/hram/.running_portal/ hram@192.168.1.72:/home/hram/services/running-portal/data/
+```
+
+Use the prepared host path as the Coolify persistent storage source.
 
 ## Notes
 
