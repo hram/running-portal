@@ -40,6 +40,8 @@ Required production paths:
 DB_PATH=/data/running-portal/portal.db
 MI_FITNESS_STATE_PATH=/data/running-portal/auth.json
 MI_FITNESS_CACHE_DIR=/data/running-portal/fds_cache
+HOME=/data/running-portal
+CLAUDE_CLI_PATH=/usr/local/bin/claude
 PORT=8000
 ```
 
@@ -75,8 +77,10 @@ Use the prepared host path as the Coolify persistent storage source.
 - Latest verified deployment commit: `fc140ad`
 - Container status after deploy: healthy.
 - Mi Fitness auth state was present after deploy.
+- Claude Code is installed inside the Docker image.
+- Claude auth for production is stored in `/srv/running-portal/data/.claude` on `dev-server`.
 
 ## Notes
 
 - Do not commit `.env`, `auth.json`, `portal.db`, or cache files.
-- AI features currently call `CLAUDE_CLI_PATH`. In Docker production this is not configured yet, so normal portal and sync features can run, but AI actions need a separate production AI decision.
+- Do not commit Claude auth files from `/srv/running-portal/data/.claude`.
