@@ -15,6 +15,12 @@ cp .env.example .env
 uvicorn portal.main:app --reload --port 8001
 ```
 
+## Production
+
+Production deployment uses the repository Dockerfile and persistent data mounted at `/data/running-portal`.
+
+See [docs/coolify-deploy.md](docs/coolify-deploy.md).
+
 ## Mi Fitness auth
 
 The portal stores Mi Fitness auth state in `MI_FITNESS_STATE_PATH`.
