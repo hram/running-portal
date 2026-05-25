@@ -10,7 +10,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN addgroup --system app && \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    addgroup --system app && \
     adduser --system --ingroup app --home /app app && \
     mkdir -p /data/running-portal && \
     chown -R app:app /app /data/running-portal
