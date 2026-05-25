@@ -285,6 +285,9 @@ async def test_get_latest_recommendation_returns_none_if_empty(conn):
 async def test_get_settings_returns_defaults(conn):
     settings = await get_settings(conn)
     assert settings["daily_prompt_template"] == DEFAULT_SETTINGS["daily_prompt_template"]
+    assert "{current_date}" in settings["daily_prompt_template"]
+    assert "{health_lines}" in settings["daily_prompt_template"]
+    assert "{last_activity_analysis}" in settings["daily_prompt_template"]
     assert settings["activity_prompt_template"] == DEFAULT_SETTINGS["activity_prompt_template"]
     assert "{current_date}" in settings["activity_prompt_template"]
     assert "{health_lines}" in settings["activity_prompt_template"]
@@ -320,6 +323,30 @@ async def test_init_db_migrates_old_activity_prompt_template():
     assert template is not None
     assert "{current_date}" in template
     assert "{health_lines}" in template
+
+
+@pytest.mark.asyncio
+async def test_init_db_migrates_old_daily_prompt_template():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "schema.db"
+        await init_db(str(db_path))
+        conn = await connect_db(str(db_path))
+        try:
+            await save_setting(conn, "daily_prompt_template", "Последние 7 пробежек:\n{recent_lines}")
+        finally:
+            await conn.close()
+
+        await init_db(str(db_path))
+        conn = await connect_db(str(db_path))
+        try:
+            template = await get_setting(conn, "daily_prompt_template")
+        finally:
+            await conn.close()
+
+    assert template is not None
+    assert "{current_date}" in template
+    assert "{health_lines}" in template
+    assert "{last_activity_analysis}" in template
 
 
 @pytest.mark.asyncio

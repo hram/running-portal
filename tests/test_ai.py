@@ -11,7 +11,7 @@ from portal.db import connect_db, init_db, save_ai_analysis
 from portal.db import save_recommendation
 from portal.infrastructure import config
 from portal.main import app
-from portal.routers.ai import build_prompt, generate_goal_suggestion
+from portal.routers.ai import build_daily_prompt, build_prompt, generate_goal_suggestion
 
 
 @pytest_asyncio.fixture
@@ -133,12 +133,28 @@ async def test_get_recommendation_returns_latest(ai_client):
 
 @pytest.mark.asyncio
 async def test_get_recommendation_prompt(ai_client):
-    client, _ = ai_client
+    client, db_path = ai_client
+    conn = await connect_db(str(db_path))
+    try:
+        await save_ai_analysis(conn, "run-ai", "Не бегать 5-7 дней из-за боли в колене")
+        await conn.execute(
+            """
+            INSERT INTO health_states (description, started_at, ended_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("Болит левое колено", "2026-05-24", None, "2026-05-24T10:00:00", "2026-05-24T10:00:00"),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
 
     response = await client.get("/api/ai/recommendation/prompt")
 
     assert response.status_code == 200
-    assert "Последняя пробежка" in response.json()["prompt"]
+    prompt = response.json()["prompt"]
+    assert "Последняя пробежка" in prompt
+    assert "Болит левое колено" in prompt
+    assert "Не бегать 5-7 дней" in prompt
 
 
 @pytest.mark.asyncio
@@ -150,6 +166,8 @@ async def test_get_settings_returns_defaults(ai_client):
     assert payload["target_hr_zone_low"] == "140"
     assert payload["target_hr_zone_high"] == "160"
     assert payload["dashboard_card_progress"] == "true"
+    assert "{health_lines}" in payload["daily_prompt_template"]
+    assert "{last_activity_analysis}" in payload["daily_prompt_template"]
     assert "Ты персональный тренер" in payload["daily_prompt_template"]
 
 
@@ -205,6 +223,38 @@ def test_build_prompt_includes_latest_health_states():
     assert "Тянула спина" in prompt
     assert "Болели стопы" in prompt
     assert "Старая запись" not in prompt
+
+
+def test_build_daily_prompt_includes_health_and_last_analysis():
+    activity = {
+        "activity_id": "run-ai",
+        "date": "2026-05-24T05:14:01+00:00",
+        "distance_km": 3.17,
+        "avg_hrm": 150,
+        "avg_pace": 360,
+        "train_load": 80,
+        "recover_time": 12,
+    }
+    settings = {
+        "daily_prompt_template": (
+            "Сегодня {current_date}\n"
+            "{recent_lines}\n"
+            "Здоровье:\n{health_lines}\n"
+            "Анализ:\n{last_activity_analysis}"
+        )
+    }
+
+    prompt = build_daily_prompt(
+        [activity],
+        settings,
+        health_states=[{"started_at": "2026-05-24", "ended_at": None, "description": "Болит левое колено"}],
+        last_activity_analysis="Не бегать 5-7 дней",
+        current_date="2026-05-25",
+    )
+
+    assert "Сегодня 2026-05-25" in prompt
+    assert "Болит левое колено" in prompt
+    assert "Не бегать 5-7 дней" in prompt
 
 
 @pytest.mark.asyncio

@@ -276,7 +276,13 @@ def format_health_lines(health_states: list[dict]) -> str:
     return "\n".join(lines) if lines else "нет записей"
 
 
-def build_daily_prompt(activities: list[dict], settings: dict[str, str]) -> str:
+def build_daily_prompt(
+    activities: list[dict],
+    settings: dict[str, str],
+    health_states: list[dict] | None = None,
+    last_activity_analysis: str | None = None,
+    current_date: str | None = None,
+) -> str:
     if not activities:
         return ""
 
@@ -284,6 +290,7 @@ def build_daily_prompt(activities: list[dict], settings: dict[str, str]) -> str:
     last_date = datetime.fromisoformat(last["date"])
     now = datetime.now(timezone.utc)
     hours_since = round((now - last_date).total_seconds() / 3600)
+    resolved_current_date = current_date or now.date().isoformat()
 
     def fmt_pace(seconds):
         if not seconds:
@@ -300,6 +307,7 @@ def build_daily_prompt(activities: list[dict], settings: dict[str, str]) -> str:
     return _render_template(
         settings["daily_prompt_template"],
         {
+            "current_date": resolved_current_date,
             "last_date": last["date"][:10],
             "last_distance_km": last.get("distance_km"),
             "last_avg_hrm": last.get("avg_hrm"),
@@ -308,6 +316,8 @@ def build_daily_prompt(activities: list[dict], settings: dict[str, str]) -> str:
             "last_recover_time": last.get("recover_time"),
             "hours_since": hours_since,
             "recent_lines": recent_lines,
+            "health_lines": format_health_lines(health_states or []),
+            "last_activity_analysis": last_activity_analysis or "нет сохранённого анализа",
         },
     )
 
@@ -488,11 +498,15 @@ async def generate_daily_recommendation(sync_id: int | None = None) -> dict[str,
     async with get_db() as conn:
         activities = await get_activities(conn, limit=10, offset=0)
         settings = await get_settings(conn)
+        health_states = (await get_health_states(conn))[:3]
+        last_activity_analysis = None
+        if activities:
+            last_activity_analysis = await get_ai_analysis(conn, str(activities[0]["activity_id"]))
 
     if not activities:
         return {"status": "run", "message": "Нет данных для анализа. Начни бегать!"}
 
-    prompt = build_daily_prompt(activities, settings)
+    prompt = build_daily_prompt(activities, settings, health_states, last_activity_analysis)
 
     try:
         process = subprocess.Popen(
@@ -543,7 +557,11 @@ async def get_daily_recommendation_prompt() -> dict[str, object]:
     async with get_db() as conn:
         activities = await get_activities(conn, limit=10, offset=0)
         settings = await get_settings(conn)
-    return {"prompt": build_daily_prompt(activities, settings)}
+        health_states = (await get_health_states(conn))[:3]
+        last_activity_analysis = None
+        if activities:
+            last_activity_analysis = await get_ai_analysis(conn, str(activities[0]["activity_id"]))
+    return {"prompt": build_daily_prompt(activities, settings, health_states, last_activity_analysis)}
 
 
 @router.get("/ai/recommendation")

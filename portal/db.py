@@ -104,6 +104,8 @@ DEFAULT_SETTINGS: dict[str, str] = {
 Бегун восстанавливается после травмы ступней. Цель: войти в ритм, бегать регулярно.
 Новые кроссовки 361 KAIROS 2 — первые недели в них.
 
+Текущая дата: {current_date}
+
 Последняя пробежка: {last_date}, {last_distance_km}км,
 пульс {last_avg_hrm} уд/мин, темп {last_avg_pace},
 нагрузка {last_train_load}, восстановление {last_recover_time}ч.
@@ -111,6 +113,12 @@ DEFAULT_SETTINGS: dict[str, str] = {
 
 Последние 7 пробежек:
 {recent_lines}
+
+Последние записи о здоровье:
+{health_lines}
+
+Сохранённый анализ последней пробежки:
+{last_activity_analysis}
 
 Ответь ТОЛЬКО валидным JSON без markdown, без пояснений:
 {{
@@ -120,7 +128,9 @@ DEFAULT_SETTINGS: dict[str, str] = {
 
 Критерии выбора status:
 - "rest": recover_time последней пробежки ещё не истёк (часов прошло < recover_time) ИЛИ пульс был > 185
+- "rest": активная запись здоровья или сохранённый анализ последней пробежки описывает боль, травму, необходимость паузы или переход на шаг
 - "run_easy": пульс был 170–185 ИЛИ нагрузка > 200 ИЛИ recover_time почти истёк
+- "run_easy": здоровье улучшилось, но есть недавние ограничения — только если бег явно безопасен
 - "run": всё в норме, можно бежать в обычном режиме""",
     "activity_prompt_template": """Ты персональный тренер по бегу. Говори коротко и по-русски, как живой тренер — без воды. Пиши связным текстом, 3–5 предложений.
 
@@ -224,7 +234,7 @@ async def init_db(db_path: str) -> None:
                 """,
                 (key, value, utc_now_iso()),
             )
-        await migrate_activity_prompt_template(conn)
+        await migrate_prompt_templates(conn)
         await conn.commit()
 
 
@@ -236,13 +246,35 @@ async def connect_db(db_path: str) -> aiosqlite.Connection:
     return conn
 
 
-async def migrate_activity_prompt_template(conn: aiosqlite.Connection) -> None:
-    cursor = await conn.execute("SELECT value FROM settings WHERE key = ?", ("activity_prompt_template",))
+async def migrate_prompt_templates(conn: aiosqlite.Connection) -> None:
+    await migrate_activity_prompt_template(conn)
+    await migrate_daily_prompt_template(conn)
+
+
+async def _get_setting_value_for_migration(conn: aiosqlite.Connection, key: str) -> str | None:
+    cursor = await conn.execute("SELECT value FROM settings WHERE key = ?", (key,))
     row = await cursor.fetchone()
     if row is None:
-        return
+        return None
+    return str(row["value"] if isinstance(row, aiosqlite.Row) else row[0])
 
-    template = str(row["value"] if isinstance(row, aiosqlite.Row) else row[0])
+
+async def _save_setting_value_for_migration(conn: aiosqlite.Connection, key: str, value: str) -> None:
+    await conn.execute(
+        """
+        UPDATE settings
+        SET value = ?,
+            updated_at = ?
+        WHERE key = ?
+        """,
+        (value, utc_now_iso(), key),
+    )
+
+
+async def migrate_activity_prompt_template(conn: aiosqlite.Connection) -> None:
+    template = await _get_setting_value_for_migration(conn, "activity_prompt_template")
+    if template is None:
+        return
     if "{health_lines}" in template and "{current_date}" in template:
         return
 
@@ -257,15 +289,46 @@ async def migrate_activity_prompt_template(conn: aiosqlite.Connection) -> None:
         else:
             updated = f"{updated.rstrip()}\n\n{health_block}"
 
-    await conn.execute(
-        """
-        UPDATE settings
-        SET value = ?,
-            updated_at = ?
-        WHERE key = ?
-        """,
-        (updated, utc_now_iso(), "activity_prompt_template"),
-    )
+    await _save_setting_value_for_migration(conn, "activity_prompt_template", updated)
+
+
+async def migrate_daily_prompt_template(conn: aiosqlite.Connection) -> None:
+    template = await _get_setting_value_for_migration(conn, "daily_prompt_template")
+    if template is None:
+        return
+
+    required_tokens = ("{current_date}", "{health_lines}", "{last_activity_analysis}")
+    if all(token in template for token in required_tokens):
+        return
+
+    updated = template
+    if "{current_date}" not in updated:
+        first_context = "Новые кроссовки 361 KAIROS 2 — первые недели в них."
+        if first_context in updated:
+            updated = updated.replace(first_context, f"{first_context}\n\nТекущая дата: {{current_date}}", 1)
+        else:
+            updated = f"Текущая дата: {{current_date}}\n\n{updated}"
+
+    health_blocks = []
+    if "{health_lines}" not in updated:
+        health_blocks.append("Последние записи о здоровье:\n{health_lines}")
+    if "{last_activity_analysis}" not in updated:
+        health_blocks.append("Сохранённый анализ последней пробежки:\n{last_activity_analysis}")
+    if health_blocks:
+        marker = "Последние 7 пробежек:\n{recent_lines}"
+        insert = "\n\n".join(health_blocks)
+        if marker in updated:
+            updated = updated.replace(marker, f"{marker}\n\n{insert}", 1)
+        else:
+            updated = f"{updated.rstrip()}\n\n{insert}"
+
+    if "активная запись здоровья" not in updated:
+        rest_marker = '- "rest": recover_time последней пробежки ещё не истёк (часов прошло < recover_time) ИЛИ пульс был > 185'
+        rest_rule = '- "rest": активная запись здоровья или сохранённый анализ последней пробежки описывает боль, травму, необходимость паузы или переход на шаг'
+        if rest_marker in updated:
+            updated = updated.replace(rest_marker, f"{rest_marker}\n{rest_rule}", 1)
+
+    await _save_setting_value_for_migration(conn, "daily_prompt_template", updated)
 
 
 async def upsert_activity(conn: aiosqlite.Connection, activity_dict: dict[str, Any]) -> None:
