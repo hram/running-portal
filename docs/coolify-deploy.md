@@ -74,11 +74,12 @@ Use the prepared host path as the Coolify persistent storage source.
 - Coolify application UUID: `i13x51t3ujxxdr8iu02x9ogg`
 - Coolify API token name: `running-portal-deploy`
 - Coolify API token file on `dev-server`: `/home/hram/secrets/coolify/running-portal-deploy.token`
-- Latest verified deployment commit: `fc140ad`
+- Latest verified deployment commit: `54b5a3f`
 - Container status after deploy: healthy.
 - Mi Fitness auth state was present after deploy.
 - Claude Code is installed inside the Docker image.
 - Claude auth for production is stored in `/srv/running-portal/data/.claude` on `dev-server`.
+- AI recommendation refresh was verified through the production URL after deploy.
 
 ## Notes
 
