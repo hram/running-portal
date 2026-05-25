@@ -8,13 +8,14 @@ Production runs from Git, not from the local development checkout.
 - Branch: `main`
 - Build pack: Dockerfile
 - Port: `8000`
+- URL: `http://running-portal.192.168.1.72.sslip.io`
 
 ## Persistent Data
 
 Current prepared host path on `dev-server`:
 
 ```text
-/home/hram/services/running-portal/data
+/srv/running-portal/data
 ```
 
 Mount it inside the container to:
@@ -54,16 +55,24 @@ MI_FITNESS_PASSWORD=
 Current runtime data was copied from the development machine to:
 
 ```text
-/home/hram/services/running-portal/data
+/srv/running-portal/data
 ```
 
 Original copy command:
 
 ```bash
-rsync -a --delete /home/hram/.running_portal/ hram@192.168.1.72:/home/hram/services/running-portal/data/
+rsync -a --delete /home/hram/.running_portal/ hram@192.168.1.72:/tmp/running-portal-data/
+ssh hram@192.168.1.72 'sudo rsync -a --delete /tmp/running-portal-data/ /srv/running-portal/data/'
 ```
 
 Use the prepared host path as the Coolify persistent storage source.
+
+## Current Status
+
+- Coolify application UUID: `i13x51t3ujxxdr8iu02x9ogg`
+- Latest verified deployment commit: `fc140ad`
+- Container status after deploy: healthy.
+- Mi Fitness auth state was present after deploy.
 
 ## Notes
 

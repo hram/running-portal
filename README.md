@@ -21,6 +21,12 @@ Production deployment uses the repository Dockerfile and persistent data mounted
 
 See [docs/coolify-deploy.md](docs/coolify-deploy.md).
 
+Current Coolify URL:
+
+```text
+http://running-portal.192.168.1.72.sslip.io
+```
+
 ## Mi Fitness auth
 
 The portal stores Mi Fitness auth state in `MI_FITNESS_STATE_PATH`.
