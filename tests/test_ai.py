@@ -204,6 +204,38 @@ async def test_refresh_recommendation_reports_claude_auth_error(ai_client, monke
 
 
 @pytest.mark.asyncio
+async def test_refresh_recommendation_treats_not_logged_in_as_auth_error(ai_client, monkeypatch):
+    client, _ = ai_client
+
+    class FakeProcess:
+        stdout = io.StringIO(
+            json.dumps(
+                {
+                    "type": "result",
+                    "is_error": True,
+                    "result": "Not logged in · Please run /login",
+                }
+            )
+        )
+        stderr = io.StringIO("")
+
+        def wait(self) -> int:
+            return 1
+
+    from portal.routers import ai as ai_router
+
+    monkeypatch.setattr(ai_router.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+
+    response = await client.post("/api/ai/recommendation/refresh")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "error"
+    assert payload["error_code"] == "claude_auth_expired"
+    assert payload["action_url"] == "/claude-auth"
+
+
+@pytest.mark.asyncio
 async def test_get_recommendation_prompt(ai_client):
     client, db_path = ai_client
     conn = await connect_db(str(db_path))

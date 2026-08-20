@@ -356,7 +356,14 @@ def _claude_error_message(event: dict) -> str | None:
 
 def _recommendation_error_response(exc: Exception) -> dict[str, str]:
     raw_message = str(exc)
-    if "Failed to authenticate" in raw_message or "OAuth session expired" in raw_message:
+    auth_markers = (
+        "Failed to authenticate",
+        "OAuth session expired",
+        "Not logged in",
+        "Please run /login",
+        "authentication_failed",
+    )
+    if any(marker in raw_message for marker in auth_markers):
         return {
             "status": "error",
             "error_code": "claude_auth_expired",
