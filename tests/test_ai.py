@@ -180,7 +180,10 @@ async def test_refresh_recommendation_reports_claude_auth_error(ai_client, monke
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "error"
-    assert "OAuth session expired" in payload["message"]
+    assert payload["error_code"] == "claude_auth_expired"
+    assert payload["message"] == "Авторизация Claude истекла. Чтобы обновить рекомендацию, войдите в Claude заново."
+    assert payload["action_label"] == "Войти в Claude"
+    assert payload["action_url"] == "/claude-auth"
 
     conn = await connect_db(str(db_path))
     try:

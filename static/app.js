@@ -2034,6 +2034,26 @@ async function loadTodayRecommendation() {
   }
 }
 
+function renderTodayRefreshError(data) {
+  const card = document.getElementById("today-card");
+  if (card) {
+    card.className = "today-card today-card--loading";
+  }
+
+  document.getElementById("today-status").textContent = "Нужно действие";
+  const message = document.getElementById("today-message");
+  const errorText = data.message || "Не удалось обновить рекомендацию.";
+
+  if (data.action_url && data.action_label) {
+    message.innerHTML = `
+      <span>${escapeHtml(errorText)}</span>
+      <a class="today-action-link" href="${escapeHtml(data.action_url)}">${escapeHtml(data.action_label)}</a>
+    `;
+  } else {
+    message.textContent = errorText;
+  }
+}
+
 async function refreshRecommendation() {
   const card = document.getElementById("today-card");
   if (card) {
@@ -2046,12 +2066,7 @@ async function refreshRecommendation() {
     const res = await fetch("/api/ai/recommendation/refresh", { method: "POST" });
     const data = await res.json();
     if (!res.ok || data.status === "error") {
-      if (card) {
-        card.className = "today-card today-card--loading";
-      }
-      document.getElementById("today-status").textContent = "Ошибка";
-      document.getElementById("today-message").textContent =
-        data.message || "Не удалось обновить рекомендацию.";
+      renderTodayRefreshError(data);
       return;
     }
     await loadTodayRecommendation();

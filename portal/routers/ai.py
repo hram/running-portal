@@ -351,6 +351,25 @@ def _claude_error_message(event: dict) -> str | None:
     return "Claude CLI returned an error"
 
 
+def _recommendation_error_response(exc: Exception) -> dict[str, str]:
+    raw_message = str(exc)
+    if "Failed to authenticate" in raw_message or "OAuth session expired" in raw_message:
+        return {
+            "status": "error",
+            "error_code": "claude_auth_expired",
+            "message": "Авторизация Claude истекла. Чтобы обновить рекомендацию, войдите в Claude заново.",
+            "action_label": "Войти в Claude",
+            "action_url": "/claude-auth",
+        }
+    return {
+        "status": "error",
+        "error_code": "claude_unavailable",
+        "message": "Не удалось обновить рекомендацию. Попробуйте позже или проверьте страницу Claude.",
+        "action_label": "Открыть Claude",
+        "action_url": "/claude-auth",
+    }
+
+
 def _monthly_goal_fallback(activities: list[dict], error: Exception | None = None) -> dict[str, object]:
     monthly: dict[str, dict[str, float | int]] = defaultdict(lambda: {"km": 0.0, "runs": 0})
     for activity in activities:
@@ -583,7 +602,7 @@ async def generate_daily_recommendation(sync_id: int | None = None) -> dict[str,
 
         return {"status": status, "message": message}
     except Exception as exc:
-        return {"status": "error", "message": f"Не удалось получить анализ: {exc}"}
+        return _recommendation_error_response(exc)
 
 
 @router.get("/ai/recommendation/prompt")
