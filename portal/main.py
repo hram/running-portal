@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from portal.db import connect_db, get_activity, get_settings, init_db, normalize_db_path
 from portal.infrastructure import config
-from portal.routers import activities, ai, assistant_manifest, auth, goals, health, settings, sync
+from portal.routers import activities, ai, assistant_manifest, auth, claude_auth, goals, health, settings, sync
 
 
 logging.basicConfig(level=logging.INFO)
@@ -50,6 +50,7 @@ app.include_router(health.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(sync.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
+app.include_router(claude_auth.router, prefix="/api")
 app.include_router(assistant_manifest.router)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -102,6 +103,11 @@ async def settings_page(request: Request) -> HTMLResponse:
         "settings.html",
         {"settings": settings_payload},
     )
+
+
+@app.get("/claude-auth", response_class=HTMLResponse)
+async def claude_auth_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, "claude_auth.html", {})
 
 
 @app.get("/health", response_class=HTMLResponse)

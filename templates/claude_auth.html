@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Claude Auth{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Claude Auth</span>
+      <span class="card-hint" id="claude-auth-path"></span>
+    </div>
+
+    <div id="claude-auth-status" class="card-hint" style="margin-bottom:16px"></div>
+
+    <div class="settings-form">
+      <div class="settings-section claude-auth-section">
+        <div>
+          <div class="settings-section-title">OAuth flow на сервере</div>
+          <div class="card-hint">
+            Ссылка создается командой <code>claude auth login</code> в окружении запущенного приложения.
+          </div>
+        </div>
+
+        <div id="claude-login-url-wrap" class="claude-login-url-wrap" style="display:none">
+          <label class="settings-field">
+            <span class="settings-label">OAuth-ссылка</span>
+            <textarea
+              id="claude-login-url"
+              class="settings-textarea claude-login-url"
+              readonly
+            ></textarea>
+          </label>
+          <div class="settings-actions">
+            <button id="claude-login-open" class="btn btn-primary" type="button" onclick="openClaudeLoginUrl()">Получить код</button>
+            <button class="btn btn-secondary" type="button" onclick="copyClaudeLoginUrl()">Копировать</button>
+          </div>
+
+          <form class="settings-form claude-code-form" onsubmit="submitClaudeOAuthCode(event)">
+            <label class="settings-field">
+              <span class="settings-label">Код из браузера</span>
+              <input id="claude-login-code" class="settings-input claude-login-code" type="text" autocomplete="off">
+            </label>
+            <div class="settings-actions">
+              <button class="btn btn-primary" type="submit">Завершить вход</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <form class="settings-form settings-section" onsubmit="saveClaudeAuth(event)">
+        <div>
+          <div class="settings-section-title">Ручная замена токена</div>
+          <div class="card-hint">Fallback, если OAuth flow через код неудобен.</div>
+        </div>
+
+      <label class="settings-field">
+        <span class="settings-label">claudeAiOauth</span>
+        <textarea
+          id="claude-auth-token"
+          class="settings-textarea claude-auth-token"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          required
+        ></textarea>
+      </label>
+
+      <div class="settings-help card-hint">
+        Токен будет записан в <code>HOME/.claude/.credentials.json</code> в формате
+        <code>{"claudeAiOauth": "..."}</code>. Текущее значение токена на странице не отображается.
+      </div>
+
+      <div class="settings-actions">
+        <button class="btn btn-primary" type="submit">Сохранить</button>
+      </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => initClaudeAuthPage());
+</script>
+{% endblock %}

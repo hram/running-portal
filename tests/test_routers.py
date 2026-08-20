@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import stat
 import tempfile
 from pathlib import Path
 
@@ -224,6 +226,110 @@ async def test_dashboard_embeds_card_visibility_settings(test_client):
     assert response.status_code == 200
     assert "dashboard_card_progress" in response.text
     assert 'data-dashboard-card="progress"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_claude_auth_page_renders(test_client):
+    client, _ = test_client
+
+    response = await client.get("/claude-auth")
+
+    assert response.status_code == 200
+    assert "claudeAiOauth" in response.text
+    assert "OAuth flow" in response.text
+    assert "Получить код" in response.text
+    assert "initClaudeAuthPage" in response.text
+
+
+@pytest.mark.asyncio
+async def test_claude_auth_login_url_api(test_client, monkeypatch):
+    client, _ = test_client
+
+    from portal.routers import claude_auth
+
+    def fake_start_login_session():
+        return {
+            "session_id": "session-1",
+            "login_url": "https://claude.com/cai/oauth/authorize?state=test",
+        }
+
+    monkeypatch.setattr(claude_auth, "_start_login_session", fake_start_login_session)
+
+    response = await client.post("/api/claude-auth/login-url")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "session_id": "session-1",
+        "login_url": "https://claude.com/cai/oauth/authorize?state=test",
+    }
+
+
+@pytest.mark.asyncio
+async def test_claude_auth_login_code_api(test_client, monkeypatch, tmp_path):
+    client, _ = test_client
+
+    from portal.routers import claude_auth
+
+    def fake_submit_login_code(session_id, code):
+        assert session_id == "session-1"
+        assert code == "oauth-code"
+        return {
+            "ok": True,
+            "credentials_path": str(tmp_path / ".claude" / ".credentials.json"),
+        }
+
+    monkeypatch.setattr(claude_auth, "_submit_login_code", fake_submit_login_code)
+
+    response = await client.post(
+        "/api/claude-auth/login-code",
+        json={"session_id": "session-1", "code": "oauth-code"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "credentials_path": str(tmp_path / ".claude" / ".credentials.json"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_claude_auth_status_and_update_use_home(test_client, monkeypatch, tmp_path):
+    client, _ = test_client
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    status_response = await client.get("/api/claude-auth")
+
+    assert status_response.status_code == 200
+    assert status_response.json() == {
+        "credentials_path": str(tmp_path / ".claude" / ".credentials.json"),
+        "configured": False,
+    }
+
+    update_response = await client.post("/api/claude-auth", json={"claudeAiOauth": " token-value \n"})
+
+    assert update_response.status_code == 200
+    assert update_response.json() == {
+        "ok": True,
+        "credentials_path": str(tmp_path / ".claude" / ".credentials.json"),
+    }
+
+    credentials_path = tmp_path / ".claude" / ".credentials.json"
+    assert json.loads(credentials_path.read_text(encoding="utf-8")) == {"claudeAiOauth": "token-value"}
+    assert stat.S_IMODE(credentials_path.stat().st_mode) == 0o600
+
+    status_response = await client.get("/api/claude-auth")
+    assert status_response.json()["configured"] is True
+
+
+@pytest.mark.asyncio
+async def test_claude_auth_rejects_blank_token(test_client, monkeypatch, tmp_path):
+    client, _ = test_client
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    response = await client.post("/api/claude-auth", json={"claudeAiOauth": "   "})
+
+    assert response.status_code == 422
+    assert not (tmp_path / ".claude" / ".credentials.json").exists()
 
 
 @pytest.mark.asyncio

@@ -2234,10 +2234,184 @@ async function saveSettings() {
   }
 }
 
+async function initClaudeAuthPage() {
+  const status = document.getElementById("claude-auth-status");
+  const path = document.getElementById("claude-auth-path");
+
+  if (status) {
+    status.textContent = "Проверяю текущий файл авторизации...";
+  }
+
+  try {
+    const response = await fetch("/api/claude-auth");
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.detail || payload.error || "Не удалось проверить Claude auth");
+    }
+    if (path) {
+      path.textContent = payload.credentials_path || "";
+    }
+    if (status) {
+      status.textContent = payload.configured
+        ? "Файл авторизации найден. Вставь новый токен, чтобы заменить его."
+        : "Файл авторизации пока не найден. Вставь токен и сохрани.";
+    }
+    await startClaudeOAuth({ silent: true });
+  } catch (error) {
+    if (status) {
+      status.textContent = `Ошибка: ${error.message}`;
+    }
+  }
+}
+
+async function saveClaudeAuth(event) {
+  event.preventDefault();
+
+  const status = document.getElementById("claude-auth-status");
+  const token = document.getElementById("claude-auth-token");
+  if (!token) {
+    return;
+  }
+
+  if (status) {
+    status.textContent = "Сохраняю...";
+  }
+
+  try {
+    const response = await fetch("/api/claude-auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claudeAiOauth: token.value }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.detail || payload.error || "Не удалось сохранить Claude auth");
+    }
+    token.value = "";
+    if (status) {
+      status.textContent = `Сохранено: ${payload.credentials_path}`;
+    }
+  } catch (error) {
+    if (status) {
+      status.textContent = `Ошибка: ${error.message}`;
+    }
+  }
+}
+
+async function startClaudeOAuth(options = {}) {
+  const status = document.getElementById("claude-auth-status");
+  const wrap = document.getElementById("claude-login-url-wrap");
+  const urlField = document.getElementById("claude-login-url");
+
+  if (status && !options.silent) {
+    status.textContent = "Запускаю claude auth login на сервере...";
+  }
+
+  try {
+    const response = await fetch("/api/claude-auth/login-url", { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok || !payload.login_url || !payload.session_id) {
+      throw new Error(payload.detail || payload.error || "Не удалось получить OAuth-ссылку");
+    }
+
+    window.currentClaudeLoginSessionId = payload.session_id;
+    window.currentClaudeLoginUrl = payload.login_url;
+    if (urlField) {
+      urlField.value = payload.login_url;
+    }
+    if (wrap) {
+      wrap.style.display = "";
+    }
+    if (status) {
+      status.textContent = "OAuth-ссылка готова. Нажми “Получить код”, затем вставь код из браузера.";
+    }
+  } catch (error) {
+    if (status) {
+      status.textContent = `Ошибка: ${error.message}`;
+    }
+  }
+}
+
+function openClaudeLoginUrl() {
+  const status = document.getElementById("claude-auth-status");
+  const value = window.currentClaudeLoginUrl || document.getElementById("claude-login-url")?.value || "";
+  if (!value) {
+    if (status) {
+      status.textContent = "OAuth-ссылка еще не готова.";
+    }
+    return;
+  }
+  window.open(value, "_blank", "noopener,noreferrer");
+}
+
+async function copyClaudeLoginUrl() {
+  const status = document.getElementById("claude-auth-status");
+  const urlField = document.getElementById("claude-login-url");
+  const value = urlField?.value || "";
+  if (!value) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(value);
+    if (status) {
+      status.textContent = "OAuth-ссылка скопирована.";
+    }
+  } catch (error) {
+    if (status) {
+      status.textContent = `Ошибка копирования: ${error.message}`;
+    }
+  }
+}
+
+async function submitClaudeOAuthCode(event) {
+  event.preventDefault();
+
+  const status = document.getElementById("claude-auth-status");
+  const code = document.getElementById("claude-login-code");
+  const sessionId = window.currentClaudeLoginSessionId;
+  if (!code || !sessionId) {
+    if (status) {
+      status.textContent = "Сначала получи OAuth-ссылку.";
+    }
+    return;
+  }
+
+  if (status) {
+    status.textContent = "Передаю код в claude auth login...";
+  }
+
+  try {
+    const response = await fetch("/api/claude-auth/login-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, code: code.value }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.detail || payload.error || "Не удалось завершить Claude login");
+    }
+    code.value = "";
+    window.currentClaudeLoginSessionId = null;
+    if (status) {
+      status.textContent = `Claude auth обновлен: ${payload.credentials_path}`;
+    }
+  } catch (error) {
+    if (status) {
+      status.textContent = `Ошибка: ${error.message}`;
+    }
+  }
+}
+
 window.triggerSync = triggerSync;
 window.openScatterModal = openScatterModal;
 window.closeScatterModal = closeScatterModal;
 window.closePromptModal = closePromptModal;
+window.initClaudeAuthPage = initClaudeAuthPage;
+window.saveClaudeAuth = saveClaudeAuth;
+window.startClaudeOAuth = startClaudeOAuth;
+window.openClaudeLoginUrl = openClaudeLoginUrl;
+window.copyClaudeLoginUrl = copyClaudeLoginUrl;
+window.submitClaudeOAuthCode = submitClaudeOAuthCode;
 window.copyPromptText = copyPromptText;
 window.showTodayPrompt = showTodayPrompt;
 window.showActivityPrompt = showActivityPrompt;

@@ -846,8 +846,39 @@ nav {
   line-height: 1.55;
 }
 
+.claude-auth-token {
+  min-height: 140px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.claude-auth-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.claude-login-url-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.claude-login-url {
+  min-height: 92px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.claude-code-form {
+  gap: 12px;
+}
+
 .settings-input {
   max-width: 180px;
+}
+
+.claude-login-code {
+  max-width: 420px;
 }
 
 .settings-zone-grid {
