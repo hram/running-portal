@@ -137,6 +137,11 @@ async def test_get_recommendation_returns_latest(ai_client):
 @pytest.mark.asyncio
 async def test_refresh_recommendation_reports_claude_auth_error(ai_client, monkeypatch):
     client, db_path = ai_client
+    conn = await connect_db(str(db_path))
+    try:
+        await save_recommendation(conn, "rest", "Старая рекомендация")
+    finally:
+        await conn.close()
 
     class FakeProcess:
         stdout = io.StringIO(
@@ -185,11 +190,17 @@ async def test_refresh_recommendation_reports_claude_auth_error(ai_client, monke
     assert payload["action_label"] == "Войти в Claude"
     assert payload["action_url"] == "/claude-auth"
 
+    get_response = await client.get("/api/ai/recommendation")
+    assert get_response.status_code == 200
+    assert get_response.json()["error_code"] == "claude_auth_expired"
+
     conn = await connect_db(str(db_path))
     try:
-        assert await get_latest_recommendation(conn) is None
+        latest = await get_latest_recommendation(conn)
     finally:
         await conn.close()
+    assert latest is not None
+    assert latest["message"] == "Старая рекомендация"
 
 
 @pytest.mark.asyncio

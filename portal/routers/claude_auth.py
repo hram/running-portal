@@ -183,6 +183,9 @@ async def get_claude_auth_status() -> dict[str, object]:
 @router.post("/claude-auth")
 async def update_claude_auth(body: ClaudeAuthUpdateRequest) -> dict[str, object]:
     path = _write_credentials(body.claudeAiOauth)
+    from portal.routers.ai import clear_recommendation_error
+
+    await clear_recommendation_error()
     return {
         "ok": True,
         "credentials_path": str(path),
@@ -196,4 +199,8 @@ async def create_claude_login_url() -> dict[str, object]:
 
 @router.post("/claude-auth/login-code")
 async def submit_claude_login_code(body: ClaudeAuthCodeRequest) -> dict[str, object]:
-    return await asyncio.to_thread(_submit_login_code, body.session_id, body.code)
+    result = await asyncio.to_thread(_submit_login_code, body.session_id, body.code)
+    from portal.routers.ai import clear_recommendation_error
+
+    await clear_recommendation_error()
+    return result

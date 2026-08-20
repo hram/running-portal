@@ -21,14 +21,17 @@ from portal.db import (
     get_ai_analysis,
     get_health_states,
     get_latest_recommendation,
+    get_setting,
     get_settings,
     save_ai_analysis,
     save_recommendation,
+    save_setting,
 )
 from portal.infrastructure import config
 
 
 router = APIRouter()
+RECOMMENDATION_ERROR_SETTING = "daily_recommendation_error"
 
 
 class AnalyzeRequest(BaseModel):
@@ -370,6 +373,30 @@ def _recommendation_error_response(exc: Exception) -> dict[str, str]:
     }
 
 
+async def _get_recommendation_error() -> dict[str, object] | None:
+    async with get_db() as conn:
+        raw = await get_setting(conn, RECOMMENDATION_ERROR_SETTING)
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(payload, dict) and payload.get("status") == "error":
+        return payload
+    return None
+
+
+async def _save_recommendation_error(payload: dict[str, str]) -> None:
+    async with get_db() as conn:
+        await save_setting(conn, RECOMMENDATION_ERROR_SETTING, json.dumps(payload, ensure_ascii=False))
+
+
+async def clear_recommendation_error() -> None:
+    async with get_db() as conn:
+        await save_setting(conn, RECOMMENDATION_ERROR_SETTING, "")
+
+
 def _monthly_goal_fallback(activities: list[dict], error: Exception | None = None) -> dict[str, object]:
     monthly: dict[str, dict[str, float | int]] = defaultdict(lambda: {"km": 0.0, "runs": 0})
     for activity in activities:
@@ -599,10 +626,13 @@ async def generate_daily_recommendation(sync_id: int | None = None) -> dict[str,
 
         async with get_db() as conn:
             await save_recommendation(conn, status, message, sync_id)
+            await save_setting(conn, RECOMMENDATION_ERROR_SETTING, "")
 
         return {"status": status, "message": message}
     except Exception as exc:
-        return _recommendation_error_response(exc)
+        payload = _recommendation_error_response(exc)
+        await _save_recommendation_error(payload)
+        return payload
 
 
 @router.get("/ai/recommendation/prompt")
@@ -619,6 +649,10 @@ async def get_daily_recommendation_prompt() -> dict[str, object]:
 
 @router.get("/ai/recommendation")
 async def get_recommendation() -> dict[str, object]:
+    error = await _get_recommendation_error()
+    if error:
+        return error
+
     async with get_db() as conn:
         rec = await get_latest_recommendation(conn)
     if not rec:

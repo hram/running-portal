@@ -2002,13 +2002,24 @@ async function loadTodayRecommendation() {
     const res = await fetch("/api/ai/recommendation");
     const data = await res.json();
 
-    if (!data.status) {
-      document.getElementById("today-status").textContent = "Нет данных";
-      document.getElementById("today-message").textContent =
-        'Нажми "Синхронизировать" чтобы получить рекомендацию.';
+    if (data.status === "error") {
+      renderTodayRefreshError(data);
       return;
     }
 
+    if (!data.status) {
+      setTodayEyebrow();
+      document.getElementById("today-status").textContent = "Нет данных";
+      document.getElementById("today-message").textContent =
+        'Нажми "Синхронизировать" чтобы получить рекомендацию.';
+      const meta = document.getElementById("today-meta");
+      if (meta) {
+        meta.innerHTML = "";
+      }
+      return;
+    }
+
+    setTodayEyebrow(data.date);
     card.className = `today-card today-card--${data.status}`;
     document.getElementById("today-status").textContent =
       STATUS_LABELS[data.status] || data.status;
@@ -2034,15 +2045,44 @@ async function loadTodayRecommendation() {
   }
 }
 
+function formatRecommendationDate(dateKey) {
+  const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return "";
+  }
+  return `${match[3]}.${match[2]}.${match[1]}`;
+}
+
+function setTodayEyebrow(recommendationDate) {
+  const eyebrow = document.getElementById("today-eyebrow");
+  if (!eyebrow) {
+    return;
+  }
+  if (!recommendationDate || recommendationDate === todayDateKey()) {
+    eyebrow.textContent = "ответ на сегодня";
+    return;
+  }
+  const formatted = formatRecommendationDate(recommendationDate);
+  eyebrow.textContent = formatted ? `ответ на ${formatted}` : "ответ на дату записи";
+}
+
 function renderTodayRefreshError(data) {
   const card = document.getElementById("today-card");
   if (card) {
     card.className = "today-card today-card--loading";
   }
 
+  const eyebrow = document.getElementById("today-eyebrow");
+  if (eyebrow) {
+    eyebrow.textContent = "ответ не обновлён";
+  }
   document.getElementById("today-status").textContent = "Нужно действие";
   const message = document.getElementById("today-message");
   const errorText = data.message || "Не удалось обновить рекомендацию.";
+  const meta = document.getElementById("today-meta");
+  if (meta) {
+    meta.innerHTML = "";
+  }
 
   if (data.action_url && data.action_label) {
     message.innerHTML = `

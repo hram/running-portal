@@ -12,7 +12,7 @@ import pytest_asyncio
 from mi_fitness_sync.auth.state import AuthState
 from mi_fitness_sync.auth.store import save_state
 from mi_fitness_sync.exceptions import Step2RequiredError
-from portal.db import connect_db, init_db, log_sync_finish, log_sync_start
+from portal.db import connect_db, get_setting, init_db, log_sync_finish, log_sync_start, save_setting
 from portal.infrastructure import config
 from portal.main import app
 
@@ -266,7 +266,12 @@ async def test_claude_auth_login_url_api(test_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_claude_auth_login_code_api(test_client, monkeypatch, tmp_path):
-    client, _ = test_client
+    client, db_path = test_client
+    conn = await connect_db(str(db_path))
+    try:
+        await save_setting(conn, "daily_recommendation_error", '{"status":"error"}')
+    finally:
+        await conn.close()
 
     from portal.routers import claude_auth
 
@@ -290,12 +295,22 @@ async def test_claude_auth_login_code_api(test_client, monkeypatch, tmp_path):
         "ok": True,
         "credentials_path": str(tmp_path / ".claude" / ".credentials.json"),
     }
+    conn = await connect_db(str(db_path))
+    try:
+        assert await get_setting(conn, "daily_recommendation_error") == ""
+    finally:
+        await conn.close()
 
 
 @pytest.mark.asyncio
 async def test_claude_auth_status_and_update_use_home(test_client, monkeypatch, tmp_path):
-    client, _ = test_client
+    client, db_path = test_client
     monkeypatch.setenv("HOME", str(tmp_path))
+    conn = await connect_db(str(db_path))
+    try:
+        await save_setting(conn, "daily_recommendation_error", '{"status":"error"}')
+    finally:
+        await conn.close()
 
     status_response = await client.get("/api/claude-auth")
 
@@ -316,6 +331,11 @@ async def test_claude_auth_status_and_update_use_home(test_client, monkeypatch, 
     credentials_path = tmp_path / ".claude" / ".credentials.json"
     assert json.loads(credentials_path.read_text(encoding="utf-8")) == {"claudeAiOauth": "token-value"}
     assert stat.S_IMODE(credentials_path.stat().st_mode) == 0o600
+    conn = await connect_db(str(db_path))
+    try:
+        assert await get_setting(conn, "daily_recommendation_error") == ""
+    finally:
+        await conn.close()
 
     status_response = await client.get("/api/claude-auth")
     assert status_response.json()["configured"] is True
