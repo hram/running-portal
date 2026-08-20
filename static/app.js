@@ -2043,10 +2043,21 @@ async function refreshRecommendation() {
   document.getElementById("today-message").textContent = "";
 
   try {
-    await fetch("/api/ai/recommendation/refresh", { method: "POST" });
+    const res = await fetch("/api/ai/recommendation/refresh", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok || data.status === "error") {
+      if (card) {
+        card.className = "today-card today-card--loading";
+      }
+      document.getElementById("today-status").textContent = "Ошибка";
+      document.getElementById("today-message").textContent =
+        data.message || "Не удалось обновить рекомендацию.";
+      return;
+    }
     await loadTodayRecommendation();
   } catch (error) {
     document.getElementById("today-status").textContent = "Ошибка";
+    document.getElementById("today-message").textContent = String(error);
   }
 }
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import json
 import tempfile
 from pathlib import Path
 
@@ -8,6 +10,7 @@ import pytest
 import pytest_asyncio
 
 from portal.db import connect_db, init_db, save_ai_analysis
+from portal.db import get_latest_recommendation
 from portal.db import save_recommendation
 from portal.infrastructure import config
 from portal.main import app
@@ -129,6 +132,61 @@ async def test_get_recommendation_returns_latest(ai_client):
     payload = response.json()
     assert payload["status"] == "run_easy"
     assert payload["message"] == "Сегодня только лёгкий бег"
+
+
+@pytest.mark.asyncio
+async def test_refresh_recommendation_reports_claude_auth_error(ai_client, monkeypatch):
+    client, db_path = ai_client
+
+    class FakeProcess:
+        stdout = io.StringIO(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "assistant",
+                            "message": {
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": "Failed to authenticate: OAuth session expired and could not be refreshed",
+                                    }
+                                ]
+                            },
+                            "is_error": True,
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "result",
+                            "is_error": True,
+                            "result": "Failed to authenticate: OAuth session expired and could not be refreshed",
+                        }
+                    ),
+                ]
+            )
+        )
+        stderr = io.StringIO("")
+
+        def wait(self) -> int:
+            return 1
+
+    from portal.routers import ai as ai_router
+
+    monkeypatch.setattr(ai_router.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+
+    response = await client.post("/api/ai/recommendation/refresh")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "error"
+    assert "OAuth session expired" in payload["message"]
+
+    conn = await connect_db(str(db_path))
+    try:
+        assert await get_latest_recommendation(conn) is None
+    finally:
+        await conn.close()
 
 
 @pytest.mark.asyncio

@@ -329,6 +329,28 @@ def _parse_claude_json(raw: str) -> dict:
     return json.loads(cleaned)
 
 
+def _claude_error_message(event: dict) -> str | None:
+    if not event.get("is_error") and not event.get("error"):
+        return None
+
+    result = event.get("result")
+    if isinstance(result, str) and result.strip():
+        return result.strip()
+
+    message = event.get("message")
+    if isinstance(message, dict):
+        blocks = message.get("content") or []
+        text = "".join(
+            block.get("text", "")
+            for block in blocks
+            if isinstance(block, dict) and block.get("type") == "text"
+        ).strip()
+        if text:
+            return text
+
+    return "Claude CLI returned an error"
+
+
 def _monthly_goal_fallback(activities: list[dict], error: Exception | None = None) -> dict[str, object]:
     monthly: dict[str, dict[str, float | int]] = defaultdict(lambda: {"km": 0.0, "runs": 0})
     for activity in activities:
@@ -525,6 +547,7 @@ async def generate_daily_recommendation(sync_id: int | None = None) -> dict[str,
         )
 
         full_text: list[str] = []
+        claude_error: str | None = None
         assert process.stdout is not None
         for line in process.stdout:
             line = line.strip()
@@ -534,12 +557,23 @@ async def generate_daily_recommendation(sync_id: int | None = None) -> dict[str,
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            event_error = _claude_error_message(event)
+            if event_error:
+                claude_error = event_error
             if event.get("type") == "assistant":
                 for block in event.get("message", {}).get("content", []):
                     if block.get("type") == "text":
                         full_text.append(block["text"])
 
-        process.wait()
+        return_code = process.wait()
+        if claude_error:
+            raise RuntimeError(claude_error)
+        if return_code != 0:
+            stderr = ""
+            if process.stderr is not None:
+                stderr = process.stderr.read().strip()
+            raise RuntimeError(stderr or f"Claude CLI exited with code {return_code}")
+
         result = _parse_claude_json("".join(full_text))
         status = result.get("status", "run")
         message = result.get("message", "")
@@ -549,7 +583,7 @@ async def generate_daily_recommendation(sync_id: int | None = None) -> dict[str,
 
         return {"status": status, "message": message}
     except Exception as exc:
-        return {"status": "run", "message": f"Не удалось получить анализ: {exc}"}
+        return {"status": "error", "message": f"Не удалось получить анализ: {exc}"}
 
 
 @router.get("/ai/recommendation/prompt")
