@@ -180,8 +180,7 @@ Dockerfile                    # multi-stage сборка (Node/Claude CLI + Pyth
 
 ## Лицензия
 
-Файла `LICENSE` в репозитории нет — нужно добавить, если проект должен
-быть лицензирован явно.
+running-portal распространяется по [MIT License](LICENSE).
 
 Уведомления и тексты лицензий стороннего ПО находятся в
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). В частности, там указано
